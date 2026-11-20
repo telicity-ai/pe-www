@@ -57,7 +57,7 @@ export async function rawFile(repo, path) {
 }
 
 const SKIP_DIR = /(^|\/)(node_modules|dist|build|out|coverage|vendor|\.next|\.nuxt|\.svelte-kit|\.output|\.vercel|\.git|storybook-static|__tests__|__mocks__|tests?|e2e|cypress|playwright|fixtures?|\.storybook)\//;
-const SKIP_FILE = /(\.(test|spec|stories|story|d)\.[a-z]+$)|((^|\/)(_app|_document|_error|layout|\+layout|\+error|error|loading|not-found|404|500|middleware|main|index\.d)\.[a-z.]+$)/i;
+const SKIP_FILE = /(\.(test|spec|stories|story|d)\.[a-z]+$)|((^|\/)(_app|_document|_error|__root|_layout|layout|\+layout|\+error|error|loading|not-found|404|500|middleware|main|index\.d)\.[a-z.]+$)/i;
 const UI_FILE = /\.(tsx|jsx|vue|svelte|astro)$/i;
 
 function score(path, size) {
@@ -75,9 +75,11 @@ function score(path, size) {
   else if (UI_FILE.test(path)) points = 20;
   if (!points) return 0;
   if (/(^|\/)(examples?|demos?|samples?|playground|docs?|templates?)\//i.test(path)) points -= 30;
+  // The product is what people come to improve; its marketing site comes after it.
+  if (/(^|\/)(marketing|website|landing|www|site|blog|storybook)\//i.test(path)) points -= 25;
   points += Math.min(14, size / 1500);
   points -= path.split('/').length * 0.8;
-  if (size < 250) points -= 30;
+  if (size < 60) points -= 30;
   return points;
 }
 
@@ -95,6 +97,12 @@ function screenTitle(path) {
     const parent = /^\[.*\]$/.test(last) ? folders.pop() : null;
     if (/^\[.*\]$/.test(last)) return titleCase(words(parent ? `${parent} detail` : `${last.replace(/[[\].]/g, '')} page`));
     return titleCase(words(last));
+  }
+  if (file.includes('.') && !/\s/.test(file)) {
+    // A route named by its address: "_chat.settings.general" is the General screen of Settings.
+    const named = file.split('.').filter((part) => part && !/^[_$]/.test(part) && part !== 'index');
+    if (named.length) return titleCase(words(named.slice(-2).join(' ')));
+    return titleCase(words(file.replace(/^[_$]+/, '').split('.')[0] || file));
   }
   return titleCase(words(file.replace(SUFFIX, '') || file));
 }
@@ -125,7 +133,7 @@ function stackFrom(packages, paths) {
 
 /**
  * Looks at a repository and returns what can be analyzed.
- * `onStep(name)` is called with "tree", "stack" and "screens" as each begins.
+ * `onStep(name)` is called with "tree", "screens" and "stack" as each begins.
  */
 export async function scanRepo(input, onStep = () => {}) {
   const repo = parseRepo(input);
@@ -151,18 +159,27 @@ export async function scanRepo(input, onStep = () => {}) {
   if (!files.length) throw new RepoError('empty');
   const paths = files.map((f) => f.path);
 
+  onStep('screens');
+  // A route that other routes are named after ("_chat.settings" for "_chat.settings.general") wraps them: it is not a screen.
+  const wraps = (path) => {
+    const stem = path.replace(/\.[A-Za-z0-9]+$/, '');
+    return /(^|\/)(routes|pages|app)\//.test(path) && paths.some((other) => other !== path && other.startsWith(`${stem}.`));
+  };
+  const ranked = files.map((f) => ({ path: f.path, size: f.size ?? 0, points: score(f.path, f.size ?? 0) }))
+    .filter((f) => f.points > 0 && !wraps(f.path)).sort((a, b) => b.points - a.points);
+  const strong = ranked.filter((f) => f.points >= 38);
+  const chosen = (strong.length ? strong : ranked).filter((f) => f.size <= 200_000).slice(0, 8);
+  if (!chosen.length) throw new RepoError('no_screens');
+
   onStep('stack');
-  const manifests = paths.filter((p) => /(^|\/)package\.json$/.test(p) && !SKIP_DIR.test(p)).sort((a, b) => a.split('/').length - b.split('/').length).slice(0, 3);
+  // The stack is that of the package the first screens live in, not of the repository's root.
+  const pathSet = new Set(paths);
+  const homes = [...new Set(chosen.slice(0, 3).map((f) => packageRoot(f.path, pathSet, '')))];
+  const manifests = [...new Set([...homes.map((home) => (home ? `${home}/package.json` : 'package.json')), 'package.json'])].filter((p) => pathSet.has(p)).slice(0, 3);
   const packages = (await Promise.all(manifests.map((p) => rawFile(repo, p)))).map((text) => {
     try { return JSON.parse(text); } catch { return null; }
   });
-  const stack = stackFrom(packages, paths);
-
-  onStep('screens');
-  const ranked = files.map((f) => ({ path: f.path, size: f.size ?? 0, points: score(f.path, f.size ?? 0) })).filter((f) => f.points > 0).sort((a, b) => b.points - a.points);
-  const strong = ranked.filter((f) => f.points >= 38);
-  const chosen = (strong.length ? strong : ranked).filter((f) => f.size <= 120_000).slice(0, 8);
-  if (!chosen.length) throw new RepoError('no_screens');
+  const stack = stackFrom(packages, homes[0] ? paths.filter((p) => p.startsWith(`${homes[0]}/`)) : paths);
 
   const seen = new Map();
   const screens = chosen.map((f) => {
@@ -172,11 +189,15 @@ export async function scanRepo(input, onStep = () => {}) {
     if (n > 1) title = `${title} ${n}`;
     return { id: f.path, path: f.path, title };
   });
-  return { repo, stack, screens, paths, treeSha: tree.sha, truncated: Boolean(tree.truncated) };
+  const sizes = new Map(files.map((f) => [f.path, f.size ?? 0]));
+  return { repo, stack, screens, paths, sizes, treeSha: tree.sha, truncated: Boolean(tree.truncated) };
 }
 
 const TRY_EXT = ['', '.tsx', '.jsx', '.ts', '.js', '.vue', '.svelte', '.astro', '.css', '.scss', '.module.css', '.module.scss', '/index.tsx', '/index.jsx', '/index.ts', '/index.js', '/index.vue'];
-const RELATED_OK = /\.(tsx|jsx|vue|svelte|astro|css|scss|less|html)$/i;
+const UI = /\.(tsx|jsx|vue|svelte|astro)$/i;
+const SHEET = /\.css$/i;
+const GLOBAL_SHEET = /(^|\/)(index|globals?|app|main|styles?|tailwind|theme|tokens|variables|base|reset)\.css$/i;
+const ENTRIES = ['src/main.tsx', 'src/main.ts', 'src/main.jsx', 'src/main.js', 'src/index.tsx', 'src/index.jsx', 'src/index.js', 'app/layout.tsx', 'app/layout.jsx', 'src/app/layout.tsx', 'src/app/layout.jsx', 'pages/_app.tsx', 'pages/_app.jsx', 'pages/_app.js', 'src/pages/_app.tsx', 'app/root.tsx', 'src/root.tsx', 'src/routes/+layout.svelte', 'src/App.vue', 'app/app.vue', 'app.vue', 'src/layouts/Layout.astro'];
 
 function resolve(from, spec, pathSet, paths) {
   if (spec.startsWith('.')) {
@@ -200,22 +221,190 @@ function resolve(from, spec, pathSet, paths) {
   return null;
 }
 
-/** The files a screen draws with: its styles and the components it imports, most useful first. */
-export async function relatedFiles(scan, path, max = 5) {
-  const source = await rawFile(scan.repo, path);
-  if (!source) return [];
-  const pathSet = new Set(scan.paths);
+function importsOf(from, source, pathSet, paths) {
   const specs = new Set();
   for (const m of source.matchAll(/(?:from\s+|import\s+|import\(\s*|require\(\s*)['"]([^'"\n]+)['"]/g)) specs.add(m[1]);
-  for (const m of source.matchAll(/(?:href|src|templateUrl|styleUrl)\s*[=:]\s*['"]([^'"\n]+\.(?:css|scss|html))['"]/g)) specs.add(m[1].startsWith('.') || m[1].startsWith('/') ? m[1].replace(/^\//, './') : `./${m[1]}`);
+  for (const m of source.matchAll(/(?:href|src|templateUrl|styleUrl)\s*[=:]\s*['"]([^'"\n]+\.(?:css|html))['"]/g)) specs.add(/^[./]/.test(m[1]) ? m[1].replace(/^\//, './') : `./${m[1]}`);
   const found = [];
   for (const spec of specs) {
-    const hit = resolve(path, spec, pathSet, scan.paths);
-    if (hit && hit !== path && RELATED_OK.test(hit) && !found.includes(hit)) found.push(hit);
+    const hit = resolve(from, spec, pathSet, paths);
+    if (hit && hit !== from && !found.includes(hit)) found.push(hit);
   }
-  // A stylesheet with the same name, even when it is not imported from the file itself.
-  const sibling = path.replace(/\.[A-Za-z0-9]+$/, '');
-  for (const ext of ['.css', '.module.css', '.scss']) if (pathSet.has(sibling + ext) && !found.includes(sibling + ext)) found.push(sibling + ext);
-  const rank = (p) => (/\.(css|scss|less)$/.test(p) ? 1 : 0) + (/(^|\/)(ui|icons?)\//.test(p) ? 2 : 0);
-  return found.sort((a, b) => rank(a) - rank(b)).slice(0, max);
+  return found;
+}
+
+/** The files that wrap a screen: a parent route, a layout in its folder or the folders above. */
+function layoutsOf(path, pathSet) {
+  const parts = path.split('/');
+  const file = parts.pop();
+  const ext = file.slice(file.lastIndexOf('.'));
+  const name = file.slice(0, -ext.length);
+  const found = [];
+  const segments = name.split('.');
+  for (let k = segments.length - 1; k >= 1 && found.length < 2; k -= 1) {
+    const parent = `${parts.join('/')}/${segments.slice(0, k).join('.')}${ext}`;
+    if (pathSet.has(parent)) found.push(parent);
+  }
+  for (let up = 0; up < 4 && found.length < 3; up += 1) {
+    const dir = parts.slice(0, parts.length - up).join('/');
+    for (const layout of ['layout.tsx', 'layout.jsx', 'layout.js', '+layout.svelte', '_layout.tsx']) {
+      const candidate = dir ? `${dir}/${layout}` : layout;
+      if (pathSet.has(candidate) && candidate !== path && !found.includes(candidate)) found.push(candidate);
+    }
+  }
+  return found;
+}
+
+function packageRoot(path, pathSet, fallback) {
+  const parts = path.split('/').slice(0, -1);
+  while (parts.length) {
+    if (pathSet.has(`${parts.join('/')}/package.json`)) return parts.join('/');
+    parts.pop();
+  }
+  return pathSet.has('package.json') ? '' : fallback;
+}
+
+/** The object literal that follows `name:` in a configuration file, without its outer braces. */
+function objectAfter(source, name) {
+  const start = source.search(new RegExp(`\\b${name}\\s*:\\s*\\{`));
+  if (start < 0) return null;
+  const open = source.indexOf('{', start);
+  let depth = 0;
+  for (let i = open; i < source.length; i += 1) {
+    if (source[i] === '{') depth += 1;
+    else if (source[i] === '}') {
+      depth -= 1;
+      if (!depth) return source.slice(open + 1, i);
+    }
+  }
+  return null;
+}
+
+/** `key: "value"` pairs of an object literal, nested ones joined with "-"; `DEFAULT` names its parent. */
+function entries(body, prefix = []) {
+  const found = [];
+  let rest = body;
+  for (let guard = 0; guard < 400; guard += 1) {
+    const key = rest.match(/^[\s,]*(?:\/\/[^\n]*\n|\/\*[\s\S]*?\*\/)*[\s,]*(["']?)([\w-]+)\1\s*:\s*/);
+    if (!key) break;
+    rest = rest.slice(key[0].length);
+    const path = key[2] === 'DEFAULT' ? prefix : [...prefix, key[2]];
+    if (rest[0] === '{') {
+      let depth = 0;
+      let end = 0;
+      for (; end < rest.length; end += 1) {
+        if (rest[end] === '{') depth += 1;
+        else if (rest[end] === '}' && !(depth -= 1)) break;
+      }
+      found.push(...entries(rest.slice(1, end), path));
+      rest = rest.slice(end + 1);
+      continue;
+    }
+    const text = rest.match(/^(["'`])((?:(?!\1)[^\\\n]|\\.)*)\1/);
+    if (text) {
+      found.push([path, text[2]]);
+      rest = rest.slice(text[0].length);
+      continue;
+    }
+    // Anything else (a function, a spread, a reference): skip to the next entry on this level.
+    let depth = 0;
+    let end = 0;
+    for (; end < rest.length; end += 1) {
+      if ('{[('.includes(rest[end])) depth += 1;
+      else if ('}])'.includes(rest[end])) depth -= 1;
+      else if (rest[end] === ',' && depth <= 0) break;
+    }
+    rest = rest.slice(end + 1);
+  }
+  return found;
+}
+
+/**
+ * Tailwind 3 keeps a project's colors and radii in tailwind.config; Tailwind 4, which draws the
+ * mockup, wants them as CSS. This writes the plain ones over (those given as strings).
+ */
+export function themeFromConfig(source) {
+  const lines = [];
+  const add = (name, prefix) => {
+    const body = objectAfter(source, name);
+    if (!body) return;
+    for (const [path, value] of entries(body)) {
+      if (!path.length || /[<>{};]/.test(value) || value.includes('<alpha-value>')) continue;
+      lines.push(`  --${prefix}-${path.join('-')}: ${value};`);
+    }
+  };
+  add('colors', 'color');
+  add('borderRadius', 'radius');
+  const dark = /darkMode\s*:\s*\[?\s*["']class["']/.test(source) ? '@custom-variant dark (&:where(.dark, .dark *));\n' : '';
+  return lines.length || dark ? `${dark}@theme inline {\n${[...new Set(lines)].join('\n')}\n}` : '';
+}
+
+/**
+ * Everything a screen is drawn with.
+ *   related: the components it renders (its own imports, then theirs) and the layouts around it;
+ *   styles:  what the model is shown of the project's styling;
+ *   assets:  the stylesheets themselves, for the frame that shows the mockup.
+ */
+export async function collectFiles(scan, path) {
+  const pathSet = new Set(scan.paths);
+  const size = (p) => scan.sizes.get(p) ?? 0;
+  const cache = new Map();
+  const read = (p) => {
+    if (!cache.has(p)) cache.set(p, rawFile(scan.repo, p));
+    return cache.get(p);
+  };
+  const empty = { related: [], styles: [], assets: { css: [], tailwind: scan.stack.includes('Tailwind CSS'), dark: false } };
+  const main = await read(path);
+  if (!main) return empty;
+
+  const first = importsOf(path, main, pathSet, scan.paths);
+  const components = first.filter((p) => UI.test(p)).sort((a, b) => size(b) - size(a)).slice(0, 8);
+  const layouts = layoutsOf(path, pathSet);
+  // A route file is often three lines around one component: what that component renders is in its own imports.
+  const opened = [...layouts.slice(0, 1), ...components.slice(0, 4)];
+  const sources = await Promise.all(opened.map(read));
+  const second = new Set();
+  sources.forEach((source, i) => {
+    if (source) for (const hit of importsOf(opened[i], source, pathSet, scan.paths)) if (UI.test(hit)) second.add(hit);
+  });
+  const rank = (p) => (/(^|\/)ui\//.test(p) ? 0 : /layout|shell|page/i.test(p.split('/').pop()) ? 1 : 2);
+  const deeper = [...second].sort((a, b) => rank(a) - rank(b) || size(a) - size(b));
+
+  const related = [];
+  let budget = 260_000;
+  for (const candidate of [...layouts, ...components, ...deeper]) {
+    if (candidate === path || related.includes(candidate) || related.length >= 15) continue;
+    const cost = Math.min(size(candidate), 100_000);
+    if (cost > budget) continue;
+    related.push(candidate);
+    budget -= cost;
+  }
+
+  const root = packageRoot(path, pathSet, scan.repo.sub ?? '');
+  const inRoot = (p) => !root || p.startsWith(`${root}/`);
+  const entries = ENTRIES.map((e) => (root ? `${root}/${e}` : e)).filter((e) => pathSet.has(e)).slice(0, 3);
+  const entrySources = await Promise.all(entries.map(read));
+  const fromEntries = entrySources.flatMap((source, i) => (source ? importsOf(entries[i], source, pathSet, scan.paths) : [])).filter((p) => SHEET.test(p));
+  const named = scan.paths.filter((p) => inRoot(p) && GLOBAL_SHEET.test(p) && !SKIP_DIR.test(p) && !/(^|\/)public\//.test(p))
+    .sort((a, b) => a.split('/').length - b.split('/').length).slice(0, 4);
+  const fromScreen = [[path, main], ...opened.map((p, i) => [p, sources[i]])]
+    .flatMap(([from, source]) => (source ? importsOf(from, source, pathSet, scan.paths) : [])).filter((p) => SHEET.test(p));
+  const sheets = [...new Set([...fromEntries, ...named, ...fromScreen])].filter((p) => size(p) < 400_000).slice(0, 8);
+  const css = (await Promise.all(sheets.map(read))).filter(Boolean);
+
+  const config = scan.paths.find((p) => /(^|\/)tailwind\.config\.[a-z]+$/.test(p) && inRoot(p)) ?? scan.paths.find((p) => /^tailwind\.config\.[a-z]+$/.test(p));
+  if (config) {
+    const theme = themeFromConfig((await read(config)) ?? '');
+    if (theme) css.push(theme);
+  }
+  const all = css.join('\n');
+  return {
+    related,
+    styles: [...sheets.slice(0, 3), ...(config ? [config] : [])],
+    assets: {
+      css,
+      tailwind: scan.stack.includes('Tailwind CSS') || Boolean(config) || /@tailwind\b|@import\s+["']tailwindcss/.test(all),
+      dark: /(^|[\s,{}(])\.dark\b|\[data-theme=["']?dark/.test(all),
+    },
+  };
 }

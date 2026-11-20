@@ -1,9 +1,9 @@
 import { API_BASE } from './config.js';
-import { RepoError, parseRepo, relatedFiles, scanRepo } from './github.js';
+import { RepoError, collectFiles, parseRepo, scanRepo } from './github.js';
 import { getLang, initLang, setLang, t } from './i18n.js';
+import { Preview, mountThumb } from './preview.js';
 import { buildPrompt, diffPrompt, mergePrompt } from './prompt.js';
 import { sampleProject } from './sample.js';
-import { esc, renderPage, renderThumb } from './wire.js';
 
 const $ = (id) => document.getElementById(id);
 const frame = $('frame');
@@ -11,7 +11,10 @@ const pop = $('pop');
 const stage = $('stage');
 const textarea = $('prompt');
 
-const STEPS = ['tree', 'stack', 'screens', 'read', 'match', 'draw'];
+const ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (c) => ESCAPES[c]);
+
+const STEPS = ['tree', 'screens', 'stack', 'read', 'match', 'draw'];
 const SCENE_MS = 2950;
 const MIN_OVERLAY_MS = 900;
 
@@ -49,64 +52,74 @@ function choose(areaId, optionId) {
   if (change.added.length || change.removed.length) screen.last = change;
 }
 
-// ---------- drawing ----------
+// ---------- the interface in the middle ----------
 
-function context() {
-  const screen = state.screen;
-  return {
-    pick: (id) => (state.preview?.area === id ? state.preview.option : screen.choices[id]),
-    chosen: (id) => Boolean(screen.choices[id]),
-    open: state.open,
-  };
+/** What stands in each area right now: what was chosen, and on top of that what is pointed at. */
+function shown() {
+  const choices = { ...state.screen.choices };
+  if (state.preview) choices[state.preview.area] = state.preview.option;
+  return choices;
 }
 
-function renderStage() {
+const preview = new Preview(frame, {
+  layout: placePop,
+  dot: ({ id, keyboard }) => openArea(state.open === id ? null : id, keyboard),
+  away: closePop,
+  escape: () => {
+    const id = state.open;
+    closePop();
+    if (id) preview.focusDot(id);
+  },
+});
+
+function syncStage() {
   if (!state.screen) return;
-  const top = frame.scrollTop;
-  frame.innerHTML = renderPage(state.screen.analysis, context());
-  frame.scrollTop = top;
+  preview.apply(shown());
+  preview.view(state.open, Object.keys(state.screen.choices));
+}
+
+let thumbs = [];
+function dropThumbs() {
+  for (const remove of thumbs) remove();
+  thumbs = [];
 }
 
 function renderPop() {
   const screen = state.screen;
   const area = screen?.analysis.areas.find((a) => a.id === state.open);
+  dropThumbs();
   if (!area) {
     pop.className = 'pop';
     pop.innerHTML = '';
     return;
   }
-  const thumbContext = { pick: (id) => screen.choices[id], chosen: () => false };
-  // Only drawings: what an option is called and why one is suggested are read by pointing at it
+  // Only pictures: what an option is called and why one is suggested are read by pointing at it
   // (and by a screen reader), so that the options take as little of the page as possible.
-  const options = area.options.map((option) => {
+  pop.setAttribute('aria-label', area.label);
+  pop.innerHTML = `<div class="pop-h">${esc(area.label)}</div><div class="pop-o">${area.options.map((option) => {
     const selected = screen.choices[area.id] === option.id;
     const reason = option.suggested ? `${t('pop.suggested')}${option.because ? `: ${option.because}` : ''}` : '';
     const name = reason ? `${option.label}. ${reason}` : option.label;
     return `<button type="button" class="opt${selected ? ' sel' : ''}" data-option="${esc(option.id)}" aria-pressed="${selected}" aria-label="${esc(name)}" title="${esc(option.label)}">${
       option.suggested ? `<i class="star" title="${esc(reason)}">★</i>` : ''
-    }<div class="th">${renderThumb(screen.analysis, area, option, thumbContext)}${option.keep ? `<span class="now">${esc(t('pop.now'))}</span>` : ''}</div></button>`;
-  }).join('');
-  pop.setAttribute('aria-label', area.label);
-  pop.innerHTML = `<div class="pop-h">${esc(area.label)}</div><div class="pop-o">${options}</div>`;
+    }<div class="th">${option.keep ? `<span class="now">${esc(t('pop.now'))}</span>` : ''}</div></button>`;
+  }).join('')}</div>`;
   pop.className = 'pop show';
-  fitThumbs();
+  pop.style.visibility = 'hidden';
+  // Each picture is the page itself with that option in place, at the width the page has now.
+  const width = preview.width || 1024;
+  for (const option of area.options) {
+    const box = pop.querySelector(`[data-option="${CSS.escape(option.id)}"] .th`);
+    thumbs.push(mountThumb(box, screen.analysis, screen.assets, area.id, { ...screen.choices, [area.id]: option.id }, width, placePop));
+  }
 }
 
-/** Draws each option as large as its picture allows: a row of buttons fills the frame instead of sitting in a corner. */
-function fitThumbs() {
-  for (const thumb of pop.querySelectorAll('.th')) {
-    const inner = thumb.firstElementChild;
-    const width = thumb.clientWidth;
-    const height = thumb.clientHeight;
-    let scale = 0.4;
-    for (const candidate of [1, 0.8, 0.64, 0.5, 0.4]) {
-      inner.style.width = `${width / candidate}px`;
-      scale = candidate;
-      if (inner.scrollHeight * candidate <= height) break;
-    }
-    inner.style.transform = `scale(${scale})`;
-    const spare = height - inner.scrollHeight * scale;
-    inner.style.marginTop = spare > 0 ? `${spare / 2}px` : '0';
+function markSelection() {
+  const chosen = state.screen?.choices[state.open];
+  for (const option of pop.querySelectorAll('.opt')) {
+    const on = option.dataset.option === chosen;
+    option.classList.toggle('sel', on);
+    option.setAttribute('aria-pressed', String(on));
   }
 }
 
@@ -117,13 +130,13 @@ function fitThumbs() {
  */
 function placePop() {
   if (!state.open) return;
-  const id = CSS.escape(state.open);
-  const dot = frame.querySelector(`[data-dot="${id}"]`);
-  const area = frame.querySelector(`[data-area="${id}"]`);
-  if (!dot || !area) return;
+  const at = preview.place(state.open);
+  if (!at) {
+    pop.style.visibility = 'hidden';
+    return;
+  }
   const outer = stage.getBoundingClientRect();
-  const port = frame.getBoundingClientRect();
-  const box = area.getBoundingClientRect();
+  const { area: box, dot, port } = at;
   const top = Math.max(box.top, port.top);
   const bottom = Math.min(box.bottom, port.bottom);
   if (bottom <= top) {
@@ -131,48 +144,57 @@ function placePop() {
     return;
   }
   pop.style.visibility = '';
-  const GAP = 12;
+  const GAP = 14;
   const EDGE = 6;
   const clamp = (value, min, max) => Math.max(min, Math.min(value, max));
 
-  pop.classList.remove('pop--col');
-  let width = pop.offsetWidth;
-  let height = pop.offsetHeight;
-  const alongRight = () => clamp(box.right - outer.left - width + 8, EDGE, Math.max(EDGE, outer.width - width - EDGE));
-  let left = alongRight();
-  let y;
-
-  if (height <= top - outer.top - GAP - EDGE) {
-    y = top - outer.top - GAP - height;
-  } else if (height <= outer.bottom - bottom - GAP - EDGE) {
-    y = bottom - outer.top + GAP;
-  } else {
-    // The part fills the view: stand beside the page, over the margin or the list of screens.
+  const set = (left, y) => {
+    pop.style.left = `${left}px`;
+    pop.style.top = `${y}px`;
+  };
+  const beside = (room, leftOf) => {
     pop.classList.add('pop--col');
-    width = pop.offsetWidth;
-    height = pop.offsetHeight;
-    const body = stage.parentElement.getBoundingClientRect();
-    const fitsTall = height <= outer.height - 2 * EDGE;
-    if (fitsTall && width <= outer.right - port.right - 2 * EDGE) {
-      left = port.right - outer.left + EDGE;
-    } else if (fitsTall && width <= port.left - body.left - 2 * EDGE) {
-      left = port.left - outer.left - EDGE - width;
-    } else {
-      pop.classList.remove('pop--col');
-      width = pop.offsetWidth;
-      height = pop.offsetHeight;
-      left = alongRight();
-      const dotAt = dot.getBoundingClientRect();
-      const dotHigh = dotAt.top + dotAt.height / 2 < outer.top + outer.height / 2;
-      pop.style.left = `${left}px`;
-      pop.style.top = `${dotHigh ? Math.max(EDGE, outer.height - height - EDGE) : EDGE}px`;
-      return;
-    }
-    y = clamp(dot.getBoundingClientRect().top - outer.top - 10, EDGE, outer.height - height - EDGE);
-  }
-  pop.style.left = `${left}px`;
-  pop.style.top = `${y}px`;
+    const width = pop.offsetWidth;
+    const height = pop.offsetHeight;
+    if (width > room - 2 * EDGE || height > outer.height - 2 * EDGE) return false;
+    set(leftOf ? port.left - outer.left - EDGE - width : port.right - outer.left + EDGE, clamp(dot.top - outer.top - 10, EDGE, outer.height - height - EDGE));
+    return true;
+  };
+
+  // A narrow page (a phone) leaves room in the stage itself: the options stand beside it.
+  if (beside(outer.right - port.right, false) || beside(port.left - outer.left, true)) return;
+
+  pop.classList.remove('pop--col');
+  const width = pop.offsetWidth;
+  const height = pop.offsetHeight;
+  const left = clamp(box.right - outer.left - width + 8, EDGE, Math.max(EDGE, outer.width - width - EDGE));
+  if (height <= top - outer.top - GAP - EDGE) return set(left, top - outer.top - GAP - height);
+  if (height <= outer.bottom - bottom - GAP - EDGE) return set(left, bottom - outer.top + GAP);
+
+  // The part fills the view: stand beside the page, over the list of screens.
+  if (beside(port.left - stage.parentElement.getBoundingClientRect().left, true)) return;
+
+  pop.classList.remove('pop--col');
+  const dotHigh = (dot.top + dot.bottom) / 2 < outer.top + outer.height / 2;
+  set(left, dotHigh ? Math.max(EDGE, outer.height - pop.offsetHeight - EDGE) : EDGE);
 }
+
+function openArea(id, fromKeyboard = false) {
+  state.open = id;
+  state.preview = null;
+  syncStage();
+  renderPop();
+  placePop();
+  renderDiff();
+  if (id && fromKeyboard) pop.querySelector('.opt')?.focus();
+}
+
+function closePop() {
+  if (!state.open && !state.preview) return;
+  openArea(null);
+}
+
+// ---------- around it ----------
 
 function renderToolbar() {
   const project = state.project;
@@ -201,8 +223,7 @@ function renderDiff() {
   let change = screen.last;
   let previewing = false;
   if (state.preview) {
-    const choices = { ...screen.choices, [state.preview.area]: state.preview.option };
-    change = diffPrompt(screen.generated, buildPrompt(screen.analysis, choices, getLang()));
+    change = diffPrompt(screen.generated, buildPrompt(screen.analysis, shown(), getLang()));
     previewing = true;
   }
   const box = $('df');
@@ -212,10 +233,10 @@ function renderDiff() {
     return;
   }
   const rows = [...change.removed.map((line) => ['r', line]), ...change.added.map((line) => ['a', line])];
-  const shown = rows.slice(0, 4);
+  const visible = rows.slice(0, 4);
   box.innerHTML = head(t(previewing ? 'diff.preview' : 'diff.last'), `<b>+${change.added.length}</b><s>−${change.removed.length}</s>`)
-    + shown.map(([kind, line]) => `<div class="dl ${kind}"><span>${esc(line)}</span></div>`).join('')
-    + (rows.length > shown.length ? `<div class="dl m">${esc(t('diff.more', { n: rows.length - shown.length }))}</div>` : '');
+    + visible.map(([kind, line]) => `<div class="dl ${kind}"><span>${esc(line)}</span></div>`).join('')
+    + (rows.length > visible.length ? `<div class="dl m">${esc(t('diff.more', { n: rows.length - visible.length }))}</div>` : '');
 }
 
 function renderPrompt() {
@@ -226,30 +247,21 @@ function renderPrompt() {
   renderDiff();
 }
 
-function renderAll() {
+/** Everything except the interface itself, which stays as it is loaded. */
+function renderAround() {
   renderToolbar();
   renderRail();
-  renderStage();
-  renderPop();
-  placePop();
   renderPrompt();
 }
 
-function closePop() {
-  if (!state.open && !state.preview) return;
-  state.open = null;
-  state.preview = null;
-  renderStage();
-  renderPop();
-  renderDiff();
-}
-
-function select(screen) {
+function select(screen, { open = null } = {}) {
   state.screen = screen;
-  state.open = null;
+  state.open = open;
   state.preview = null;
-  frame.scrollTop = 0;
-  renderAll();
+  preview.load(screen.analysis, screen.assets, screen.choices, screen.title);
+  preview.view(open, Object.keys(screen.choices));
+  renderAround();
+  renderPop();
 }
 
 // ---------- the sample ----------
@@ -265,13 +277,7 @@ function loadSample({ hint = false } = {}) {
   state.screen = first;
   // One choice is already made and one area is open, so that the first look shows how it works.
   if (hint) choose('sections', 'cards');
-  select(first);
-  if (hint && window.matchMedia('(min-width: 861px)').matches) {
-    state.open = 'sections';
-    renderStage();
-    renderPop();
-    placePop();
-  }
+  select(first, { open: hint && window.matchMedia('(min-width: 861px)').matches ? 'sections' : null });
 }
 
 function forgetRepo() {
@@ -342,14 +348,15 @@ function showError(error) {
   $('er').hidden = false;
 }
 
-async function requestAnalysis(project, screen, related) {
+async function requestBoard(project, screen, files) {
   const params = new URLSearchParams({ repo: `${project.repo.owner}/${project.repo.name}`, ref: project.repo.ref, path: screen.path, lang: getLang() });
-  for (const path of related) params.append('rel', path);
+  for (const path of files.related) params.append('rel', path);
+  for (const path of files.styles) params.append('css', path);
   if (project.stack.length) params.set('stack', project.stack.join(', '));
   if (project.scan.treeSha) params.set('v', project.scan.treeSha.slice(0, 12));
   let response;
   try {
-    response = await fetch(`${API_BASE}/api/analyze?${params}`);
+    response = await fetch(`${API_BASE}/api/board?${params}`);
   } catch {
     throw new RepoError('offline');
   }
@@ -372,13 +379,14 @@ async function analyzeScreen(screen, run = ++state.run) {
   setStep('read', { file: screen.path.split('/').slice(-2).join('/') });
   screen.status = 'loading';
   renderRail();
-  const timers = [setTimeout(() => run === state.run && setStep('match'), 3500), setTimeout(() => run === state.run && setStep('draw'), 9000)];
+  // Writing a whole screen takes the model about a minute; the steps only say what it is busy with.
+  const timers = [setTimeout(() => run === state.run && setStep('match'), 7000), setTimeout(() => run === state.run && setStep('draw'), 20_000)];
   try {
-    const related = await relatedFiles(project.scan, screen.path);
-    const answer = await requestAnalysis(project, screen, related);
-    screen.analysis = { screen: { ...answer.screen, title: answer.screen.title || screen.title }, page: answer.page, areas: answer.areas };
+    const files = await collectFiles(project.scan, screen.path);
+    const answer = await requestBoard(project, screen, files);
+    screen.analysis = { screen: { ...answer.screen, title: answer.screen.title || screen.title }, css: answer.css, page: answer.page, areas: answer.areas };
+    screen.assets = files.assets;
     screen.title = screen.analysis.screen.title;
-    screen.lang = getLang();
     screen.status = 'ready';
     prepare(screen);
     const wait = MIN_OVERLAY_MS - (Date.now() - overlaySince);
@@ -403,7 +411,7 @@ async function analyzeRepo(input) {
   showOverlay();
   setStep('tree');
   try {
-    const scan = await scanRepo(input, (step) => run === state.run && setStep(step));
+    const scan = await scanRepo(input, (name) => run === state.run && setStep(name));
     if (run !== state.run) return;
     state.project = { sample: false, repo: scan.repo, stack: scan.stack, scan, screens: scan.screens.map((s) => ({ ...s, status: 'idle' })) };
     state.screen = null;
@@ -461,30 +469,17 @@ $('screens').addEventListener('click', (event) => {
   else analyzeScreen(screen);
 });
 
-frame.addEventListener('click', (event) => {
-  const dot = event.target.closest('.dot');
-  if (!dot) return;
-  event.stopPropagation();
-  state.open = state.open === dot.dataset.dot ? null : dot.dataset.dot;
-  state.preview = null;
-  renderStage();
-  renderPop();
-  placePop();
-  renderDiff();
-  if (state.open && event.detail === 0) pop.querySelector('.opt')?.focus(); // opened from the keyboard
-});
-
 function pointAt(option) {
   if (!option || !state.open) return;
   if (state.preview?.option === option.dataset.option) return;
   state.preview = { area: state.open, option: option.dataset.option };
-  renderStage();
+  syncStage();
   renderDiff();
 }
 function pointAway() {
   if (!state.preview) return;
   state.preview = null;
-  renderStage();
+  syncStage();
   renderDiff();
 }
 pop.addEventListener('mouseover', (event) => pointAt(event.target.closest('.opt')));
@@ -495,16 +490,11 @@ pop.addEventListener('click', (event) => {
   const option = event.target.closest('.opt');
   if (!option || !state.open) return;
   event.stopPropagation();
-  const id = option.dataset.option;
-  choose(state.open, id);
+  choose(state.open, option.dataset.option);
   state.preview = null;
-  renderToolbar();
-  renderRail();
-  renderStage();
-  renderPop();
-  placePop();
-  renderPrompt();
-  pop.querySelector(`[data-option="${CSS.escape(id)}"]`)?.focus({ preventScroll: true });
+  syncStage();
+  markSelection();
+  renderAround();
 });
 
 document.addEventListener('click', (event) => {
@@ -514,19 +504,19 @@ document.addEventListener('keydown', (event) => {
   if (event.key !== 'Escape' || !state.open) return;
   const id = state.open;
   closePop();
-  frame.querySelector(`[data-dot="${CSS.escape(id)}"]`)?.focus();
+  preview.focusDot(id);
 });
-frame.addEventListener('scroll', placePop, { passive: true });
 window.addEventListener('resize', placePop);
 
+function setDevice(device) {
+  for (const button of $('seg').children) button.classList.toggle('on', button.dataset.w === device);
+  closePop();
+  stage.classList.toggle('phone', device === 'phone');
+  preview.setNarrow(device === 'phone');
+}
 $('seg').addEventListener('click', (event) => {
   const button = event.target.closest('button');
-  if (!button) return;
-  for (const other of $('seg').children) other.classList.toggle('on', other === button);
-  stage.classList.toggle('phone', button.dataset.w === 'phone');
-  closePop();
-  // The frame changes width with a transition; the options are placed again once it is done.
-  setTimeout(placePop, 280);
+  if (button) setDevice(button.dataset.w);
 });
 
 textarea.addEventListener('input', () => {
@@ -566,7 +556,8 @@ function flash(button) {
   }, 1400);
 }
 $('copy').addEventListener('click', async (event) => {
-  if (await copyText(textarea.value)) flash(event.currentTarget);
+  const button = event.currentTarget;
+  if (await copyText(textarea.value)) flash(button);
 });
 for (const button of document.querySelectorAll('[data-copy]')) {
   button.addEventListener('click', async () => {
@@ -580,7 +571,7 @@ for (const button of document.querySelectorAll('[data-lang]')) {
     setLang(button.dataset.lang);
     const project = state.project;
     if (project.sample) {
-      // The sample exists in both languages: swap it and keep what was chosen.
+      // The sample exists in both languages: its words are swapped, its interface stays as it is.
       const fresh = sampleProject(getLang());
       const current = state.screen?.id;
       for (const screen of fresh.screens) prepare(screen, project.screens.find((s) => s.id === screen.id)?.choices);
@@ -590,9 +581,13 @@ for (const button of document.querySelectorAll('[data-lang]')) {
       // An analysis keeps the language it was made in; the prompt around it follows the page.
       for (const screen of project.screens) if (screen.analysis) prepare(screen, screen.choices);
     }
-    state.open = null;
-    state.preview = null;
-    if (state.screen) renderAll();
+    if (state.screen) {
+      const open = state.open;
+      state.preview = null;
+      renderAround();
+      renderPop();
+      if (open) placePop();
+    }
     if (!$('ov').hidden && step) setStep(step.name, step.values);
   });
 }
@@ -600,11 +595,10 @@ for (const button of document.querySelectorAll('[data-lang]')) {
 // ---------- start ----------
 
 initLang();
-loadSample({ hint: true });
-if (document.fonts?.ready) document.fonts.ready.then(placePop);
-window.addEventListener('load', placePop);
-
+// On a phone the page is shown as a phone shows it; a desktop layout would be too small to read.
+if (window.matchMedia('(max-width: 720px)').matches) setDevice('phone');
 const asked = new URLSearchParams(location.search).get('repo');
+loadSample({ hint: !asked });
 if (asked && parseRepo(asked)) {
   $('repo').value = asked.replace(/^(https?:\/\/)?(www\.)?github\.com\//i, '');
   analyzeRepo(asked);

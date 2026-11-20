@@ -1,11 +1,13 @@
 // A local server for the page and the analysis function.
 //   node scripts/dev.mjs            page on http://127.0.0.1:4321, analysis needs UPSTAGE_API_KEY
 //   node scripts/dev.mjs --mock     the analysis answers with a canned storyboard, without a key
+//                                   (MOCK_FILE=answer.json uses a saved answer instead)
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { extname, join, normalize as normalizePath } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import handler from '../api/analyze.js';
+import { readFileSync } from 'node:fs';
+import handler from '../api/board.js';
 import { normalize } from '../api/_lib/normalize.js';
 import { EXAMPLE } from '../api/_lib/prompt.js';
 
@@ -22,13 +24,13 @@ function query(url) {
 
 createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
-  if (url.pathname === '/api/analyze') {
+  if (url.pathname === '/api/board') {
     res.status = (code) => { res.statusCode = code; return res; };
     res.json = (body) => { res.setHeader('content-type', 'application/json'); res.end(JSON.stringify(body)); };
     if (mock) {
       await new Promise((resolve) => setTimeout(resolve, Number(process.env.MOCK_MS) || 2500));
-      const board = normalize(EXAMPLE);
-      return res.status(200).json({ ok: true, screen: { title: board.title, summary: board.summary, file: url.searchParams.get('path') }, page: board.page, areas: board.areas });
+      const board = normalize(process.env.MOCK_FILE ? JSON.parse(readFileSync(process.env.MOCK_FILE, 'utf8')) : EXAMPLE);
+      return res.status(200).json({ ok: true, screen: { title: board.title, summary: board.summary, file: url.searchParams.get('path') }, css: board.css, page: board.page, areas: board.areas });
     }
     req.query = query(url);
     return handler(req, res);

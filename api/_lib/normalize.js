@@ -1,11 +1,9 @@
 import { DECISIONS, PATTERNS } from './catalog.js';
-import { BLOCK_TYPES } from './prompt.js';
 
 const PATTERN_IDS = new Set(PATTERNS.map((p) => p.id));
 const DECISION_IDS = new Set(DECISIONS.map((d) => d.id));
-const TYPES = new Set(BLOCK_TYPES);
 
-const LIMITS = { pageBlocks: 20, optionBlocks: 6, children: 8, items: 8, areas: 5, options: 4 };
+const LIMITS = { areas: 5, options: 4, page: 90_000, option: 30_000, css: 30_000 };
 
 function str(value, max) {
   if (typeof value !== 'string') return null;
@@ -19,50 +17,18 @@ function slug(value, fallback) {
   return s || fallback;
 }
 
-function int(value, min, max) {
-  return Number.isInteger(value) ? Math.min(max, Math.max(min, value)) : null;
-}
-
-function leaf(raw, { allowArea }) {
-  if (!raw || typeof raw !== 'object' || !TYPES.has(raw.t)) return null;
-  if (raw.t === 'area') {
-    if (!allowArea) return null;
-    const id = slug(raw.text, '');
-    return id ? { t: 'area', text: id } : null;
-  }
-  const block = { t: raw.t };
-  const text = str(raw.text, 90);
-  if (text) block.text = text;
-  if (Array.isArray(raw.items)) {
-    const items = raw.items.map((item) => str(item, 48)).filter(Boolean).slice(0, LIMITS.items);
-    if (items.length) block.items = items;
-  }
-  const n = int(raw.n, 1, 8);
-  if (n) block.n = n;
-  const cols = int(raw.cols, 1, 4);
-  if (cols) block.cols = cols;
-  const style = typeof raw.style === 'string' && /^[a-z][a-z-]{0,20}$/.test(raw.style) ? raw.style : null;
-  if (style) block.style = style;
-  return block;
-}
-
-function blocks(raw, max, { allowArea }) {
-  if (!Array.isArray(raw)) return [];
-  const out = [];
-  for (const item of raw) {
-    const block = leaf(item, { allowArea });
-    if (!block) continue;
-    if (block.t === 'section' && Array.isArray(item.children)) {
-      const children = item.children
-        .map((child) => (child && child.t === 'section' ? null : leaf(child, { allowArea })))
-        .filter(Boolean)
-        .slice(0, LIMITS.children);
-      if (children.length) block.children = children;
-    }
-    out.push(block);
-    if (out.length >= max) break;
-  }
-  return out;
+/**
+ * Markup from the model. It is cut to size here and nothing more: the page that shows it
+ * parses it, keeps only harmless elements and attributes, and draws it in a frame that cannot
+ * reach the page around it. Scripts are dropped here as well, so that no later step meets them.
+ */
+function markup(value, max) {
+  if (typeof value !== 'string') return '';
+  return value
+    .replace(/\u0000/g, '')
+    .replace(/<script\b[\s\S]*?(<\/script\s*>|$)/gi, '')
+    .slice(0, max)
+    .trim();
 }
 
 function unique(id, seen) {
@@ -72,23 +38,9 @@ function unique(id, seen) {
   return candidate;
 }
 
-function slots(list, visit) {
-  for (const block of list) {
-    if (block.t === 'area') visit(block);
-    for (const child of block.children ?? []) if (child.t === 'area') visit(child);
-  }
-}
+const SLOT = /<pe-area\b[^>]*\bid\s*=\s*(["'])([^"']*)\1[^>]*>(\s*<\/pe-area\s*>)?/gi;
 
-function dropSlots(list, keep) {
-  return list
-    .filter((block) => block.t !== 'area' || keep(block))
-    .map((block) => (block.children ? { ...block, children: block.children.filter((c) => c.t !== 'area' || keep(c)) } : block));
-}
-
-/**
- * Turns whatever the model answered into a storyboard the page can draw, or throws.
- * Nothing in the result is trusted markup: every string is plain text of bounded length.
- */
+/** Turns whatever the model answered into a storyboard the page can draw, or throws. */
 export function normalize(raw) {
   if (!raw || typeof raw !== 'object') throw new Error('The answer is not an object');
 
@@ -107,9 +59,10 @@ export function normalize(raw) {
       if (options.length >= LIMITS.options) break;
       if (!rawOption || typeof rawOption !== 'object') continue;
       const optionLabel = str(rawOption.label, 70);
-      const optionBlocks = blocks(rawOption.blocks, LIMITS.optionBlocks, { allowArea: false });
-      if (!optionLabel || !optionBlocks.length) continue;
-      const option = { id: unique(slug(rawOption.id, 'option'), optionIds), label: optionLabel, blocks: optionBlocks };
+      // An option may not hold a place for another area.
+      const html = markup(rawOption.html, LIMITS.option).replace(SLOT, '');
+      if (!optionLabel || !/<[a-z]/i.test(html)) continue;
+      const option = { id: unique(slug(rawOption.id, 'option'), optionIds), label: optionLabel, html };
       if (rawOption.keep === true) option.keep = true;
       const pattern = typeof rawOption.pattern === 'string' && PATTERN_IDS.has(rawOption.pattern) ? rawOption.pattern : null;
       if (pattern && !option.keep) option.pattern = pattern;
@@ -121,8 +74,7 @@ export function normalize(raw) {
     if (options.length < 2) continue;
 
     // Exactly one "as it is today", and it comes first.
-    const keeps = options.filter((o) => o.keep);
-    const keep = keeps[0] ?? options[0];
+    const keep = options.find((o) => o.keep) ?? options[0];
     for (const option of options) {
       if (option === keep) {
         option.keep = true;
@@ -137,8 +89,7 @@ export function normalize(raw) {
     options.unshift(keep);
 
     // Exactly one suggestion among the alternatives.
-    const suggested = options.filter((o) => o.suggested);
-    const pick = suggested[0] ?? options[1];
+    const pick = options.find((o) => o.suggested) ?? options[1];
     for (const option of options.slice(1)) {
       if (option === pick) option.suggested = true;
       else {
@@ -154,28 +105,69 @@ export function normalize(raw) {
     if (typeof rawArea.decision === 'string' && DECISION_IDS.has(rawArea.decision)) area.decision = rawArea.decision;
     areas.push(area);
   }
-  if (!areas.length) throw new Error('The answer has no area with at least two options');
 
-  let page = blocks(raw.page, LIMITS.pageBlocks, { allowArea: true });
+  // Every area has exactly one place in the page. The model either leaves a <pe-area> element
+  // there, or (more often) writes the whole page and repeats that part as the area's first
+  // option: then the repeated markup is found in the page and replaced by the place.
   const placed = new Set();
-  page = dropSlots(page, (slot) => {
-    const id = renamed.get(slot.text);
-    if (!id || placed.has(id)) return false;
-    slot.text = id;
+  let page = markup(raw.page, LIMITS.page).replace(SLOT, (_, quote, name) => {
+    const id = renamed.get(slug(name, ''));
+    if (!id || placed.has(id)) return '';
     placed.add(id);
-    return true;
+    return `<pe-area id="${id}"></pe-area>`;
   });
-  // An area nobody placed goes to the end, so that it can still be chosen.
-  for (const area of areas) if (!placed.has(area.id)) page.push({ t: 'area', text: area.id });
-
-  let count = 0;
-  slots(page, () => { count += 1; });
-  if (count !== areas.length) throw new Error('Areas and their places on the page do not match');
+  const tight = (html) => html.replace(/>\s+</g, '><').trim();
+  /** Replaces `part` in `whole` by the area's place. Returns the new text, or null when it is not there. */
+  const cut = (whole, part, slot) => {
+    let at = whole.indexOf(part);
+    if (at >= 0) return whole.slice(0, at) + slot + whole.slice(at + part.length);
+    // The same markup, written with other whitespace between the tags.
+    const tightWhole = tight(whole);
+    const tightPart = tight(part);
+    at = tightPart ? tightWhole.indexOf(tightPart) : -1;
+    if (at >= 0) return tightWhole.slice(0, at) + slot + tightWhole.slice(at + tightPart.length);
+    // A copy that differs somewhere in the middle: the part is taken from where the copy
+    // begins to where it ends, when that stretch is about as long as the copy.
+    const EDGE = 100;
+    if (tightPart.length < 3 * EDGE) return null;
+    const from = tightWhole.indexOf(tightPart.slice(0, EDGE));
+    const tail = tightPart.slice(-EDGE);
+    const to = from < 0 ? -1 : tightWhole.indexOf(tail, from + EDGE);
+    if (to < 0) return null;
+    const length = to + tail.length - from;
+    if (length < tightPart.length * 0.7 || length > tightPart.length * 1.4) return null;
+    return tightWhole.slice(0, from) + slot + tightWhole.slice(from + length);
+  };
+  // Larger parts first: a part that lies inside another is then found inside that one.
+  const bySize = areas.filter((area) => !placed.has(area.id)).sort((a, b) => b.options[0].html.length - a.options[0].html.length);
+  for (const area of bySize) {
+    const slot = `<pe-area id="${area.id}"></pe-area>`;
+    const current = area.options[0].html;
+    const inPage = cut(page, current, slot);
+    if (inPage !== null) {
+      page = inPage;
+      placed.add(area.id);
+      continue;
+    }
+    // Inside the present state of an area that is placed already: it is there for as long as that state stands.
+    for (const outer of areas) {
+      if (outer === area || !placed.has(outer.id)) continue;
+      const inside = cut(outer.options[0].html, current, slot);
+      if (inside === null) continue;
+      outer.options[0].html = inside;
+      placed.add(area.id);
+      break;
+    }
+  }
+  const kept = areas.filter((area) => placed.has(area.id));
+  if (!kept.length) throw new Error('The answer has no area that is placed in the page');
+  if (!/<[a-z]/i.test(page.replace(SLOT, ''))) throw new Error('The answer has no page');
 
   return {
     title: str(raw.title, 48) ?? 'Screen',
     summary: str(raw.summary, 220) ?? '',
+    css: typeof raw.css === 'string' ? raw.css.replace(/\u0000/g, '').slice(0, LIMITS.css).trim() : '',
     page,
-    areas,
+    areas: kept,
   };
 }
