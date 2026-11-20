@@ -1,0 +1,269 @@
+// Every word of the interface, in English and Korean. English is the default; the choice is
+// remembered, and `?lang=ko` in the address selects it.
+
+const en = {
+  'doc.title': 'picky-eater · Pick the UI before your agent builds it',
+  'nav.docs': 'Docs',
+  'nav.patterns': 'Patterns',
+  'nav.compat': 'Compatibility',
+  'hero.badge': 'Agent Skill for Claude Code · Codex · Cursor',
+  'hero.h1a': 'Your agent sketches. You pick.',
+  'hero.h1b': 'It builds exactly that.',
+  'hero.sub': 'picky-eater puts a few drawn options on your real page before any code changes. Point at a dot, keep what you like, approve.',
+  'try.cap': 'Try it on your repo',
+  'try.note': 'public repos · read once, never stored',
+  'try.button': 'Analyze',
+  'install.cap': 'Install the skill',
+  copy: 'Copy',
+  copied: 'Copied',
+  'hero.note': 'No repo at hand? The sample below is live.',
+  'hero.reset': 'Reset to the sample',
+  'pg.sample': 'sample',
+  'pg.desktop': 'Desktop',
+  'pg.phone': 'Phone',
+  'pg.chosen': '{n} of {m} chosen',
+  'pg.note': 'This preview reads source files and draws a wireframe. Installed, the skill works on your running page.',
+  'rail.screens': 'Screens found',
+  'rail.stack': 'Stack',
+  'prompt.title': 'Prompt',
+  'prompt.editable': 'editable',
+  'prompt.reset': 'Reset',
+  'prompt.copy': 'Copy prompt',
+  'prompt.hint': 'Paste into Claude Code, Codex or Cursor',
+  'diff.last': 'Last change',
+  'diff.preview': 'If you pick this',
+  'diff.changes': 'Changes',
+  'diff.none': 'Pick an option to see what changes.',
+  'diff.same': 'No change to the prompt.',
+  'diff.more': '{n} more lines',
+  'pop.now': 'now',
+  'pop.suggested': 'Suggested',
+  'an.tree': 'Fetching the repository tree',
+  'an.stack': 'Detecting the stack',
+  'an.screens': 'Finding screens',
+  'an.read': 'Reading {file}',
+  'an.match': 'Matching the pattern catalog',
+  'an.draw': 'Drawing the options',
+  'an.while': 'While this runs',
+  'an.next': 'What you do next',
+  'step1.t': 'Pick on the sketch',
+  'step1.d': 'Point at a dot. Each option is a drawing of the result.',
+  'step2.t': 'Copy the prompt',
+  'step2.d': 'Your picks as text. Edit it before you copy.',
+  'step3.t': 'Paste it into your agent',
+  'step3.d': 'Claude Code, Codex or Cursor, with the skill installed.',
+  'step4.t': 'Approve on your real page',
+  'step4.d': 'It builds exactly that, checks it, and remembers your taste.',
+  'sc.here': 'on this page',
+  'sc.terminal': 'your terminal',
+  'sc.app': 'your running app',
+  'sc.removed': 'Still open: sections',
+  'sc.added': 'Sections: each in its own card',
+  'sc.typed': 'Use the picky-eater skill on the settings page…',
+  'sc.o1': 'Reading SettingsPage.tsx on your dev server',
+  'sc.o2': 'Drawing 4 areas, your picks marked ★',
+  'sc.o3': 'Review page →',
+  'sc.draft': 'Settings · Draft 1',
+  'sc.approve': 'Approve',
+  'sc.built': 'Built · matches what you approved',
+  'err.title': 'That did not work',
+  'err.retry': 'Try again',
+  'err.sample': 'Back to the sample',
+  'err.bad_input': 'That does not look like a GitHub repository. Type owner/repo or paste its address.',
+  'err.not_found': 'There is no public repository at that address. Private repositories cannot be read.',
+  'err.rate_limited': 'GitHub allows 60 lookups an hour from one network, and they are used up. Try again in {n} minutes.',
+  'err.rate_limited_soon': 'GitHub allows 60 lookups an hour from one network, and they are used up. Try again later.',
+  'err.network': 'GitHub could not be reached. Check your connection.',
+  'err.github': 'GitHub returned an error. Try again in a moment.',
+  'err.empty': 'That folder has no files.',
+  'err.no_screens': 'No page or component files were found in that repository.',
+  'err.not_configured': 'Live analysis is not switched on yet. The sample shows how it works.',
+  'err.busy': 'Too many analyses are running right now. Try again in a minute.',
+  'err.failed': 'The analysis did not finish. Try again, or pick another screen.',
+  'err.file': 'That file could not be read.',
+  'err.offline': 'The analysis service could not be reached. Try again in a moment.',
+  'how.h2': 'Three steps, one approval',
+  'how.sub': 'What you tried above is a sketch of the skill. Installed, it works on your running page.',
+  'how1.t': 'The agent sketches',
+  'how1.d': 'It reads your project once and lays two to four drawn options over each part of the page that matters.',
+  'how2.t': 'You point at the dots',
+  'how2.d': 'Each option shows on the page itself, at desktop and phone width. Click to keep it. No design vocabulary.',
+  'how3.t': 'It builds what you approved',
+  'how3.d': 'The built page is measured against the approved one, and every difference is fixed or explained.',
+  'taste.kicker': 'Installed, it learns your taste',
+  'taste.h': 'The star follows your choices',
+  'taste.p': "Each approval is kept on your machine as pattern ids, never your page's text. Next time the suggested mark sits where you chose before: at once in the same project, elsewhere once a choice repeats.",
+  'taste.l1': 'shows what is kept',
+  'taste.l2': 'stops it for a project',
+  'taste.l3': 'deletes it',
+  'taste.this': 'This approval',
+  'taste.next': 'Next draft',
+  'taste.why': 'You chose this over cards in 2 projects',
+  'stat.patterns': 'patterns',
+  'stat.decisions': 'recurring decisions',
+  'stat.stacks': 'stacks tested',
+  'stat.keys': 'accounts, keys or telemetry',
+  'cta.h': 'Install once. Ask in plain words.',
+  'cta.q': 'Our pricing page feels flat. Show me a few ways to arrange the plan cards before you change it.',
+  'foot.license': 'MIT License',
+  'foot.by': 'Preview analysis by Upstage Solar',
+  'foot.security': 'Security',
+};
+
+const ko = {
+  'doc.title': 'picky-eater · 에이전트가 만들기 전에 UI부터 고르세요',
+  'nav.docs': '문서',
+  'nav.patterns': '패턴',
+  'nav.compat': '호환성',
+  'hero.badge': 'Claude Code · Codex · Cursor에서 쓰는 Agent Skill',
+  'hero.h1a': '에이전트가 스케치하고 내가 고릅니다.',
+  'hero.h1b': '고른 그대로 만듭니다.',
+  'hero.sub': 'picky-eater는 코드를 고치기 전에 실제 페이지 위에 옵션을 그림으로 몇 개 올려 줍니다. 점을 가리켜 마음에 드는 안을 고르고 승인하면 됩니다.',
+  'try.cap': '내 레포로 해 보기',
+  'try.note': '공개 레포만 · 한 번 읽고 저장하지 않음',
+  'try.button': '분석',
+  'install.cap': '스킬 설치',
+  copy: '복사',
+  copied: '복사됨',
+  'hero.note': '레포가 없어도 됩니다. 아래 샘플을 바로 눌러 보세요.',
+  'hero.reset': '샘플로 돌아가기',
+  'pg.sample': '샘플',
+  'pg.desktop': '데스크톱',
+  'pg.phone': '휴대폰',
+  'pg.chosen': '{m}곳 중 {n}곳 선택',
+  'pg.note': '이 미리보기는 소스 파일을 읽어 와이어프레임으로 그린 것입니다. 스킬을 설치하면 실행 중인 실제 페이지에서 동작합니다.',
+  'rail.screens': '찾은 화면',
+  'rail.stack': '스택',
+  'prompt.title': '프롬프트',
+  'prompt.editable': '수정 가능',
+  'prompt.reset': '되돌리기',
+  'prompt.copy': '프롬프트 복사',
+  'prompt.hint': 'Claude Code, Codex, Cursor에 붙여 넣으세요',
+  'diff.last': '방금 바뀐 내용',
+  'diff.preview': '이 안을 고르면',
+  'diff.changes': '변경 내용',
+  'diff.none': '옵션을 고르면 바뀌는 부분이 여기에 나옵니다.',
+  'diff.same': '프롬프트는 그대로입니다.',
+  'diff.more': '외 {n}줄',
+  'pop.now': '지금',
+  'pop.suggested': '추천',
+  'an.tree': '레포 파일 목록 가져오는 중',
+  'an.stack': '스택 확인 중',
+  'an.screens': '화면 찾는 중',
+  'an.read': '{file} 읽는 중',
+  'an.match': '패턴 카탈로그와 맞춰 보는 중',
+  'an.draw': '옵션 그리는 중',
+  'an.while': '분석하는 동안',
+  'an.next': '다음에 할 일',
+  'step1.t': '스케치에서 고르기',
+  'step1.d': '점을 가리키면 옵션이 결과 그림으로 나옵니다.',
+  'step2.t': '프롬프트 복사',
+  'step2.d': '고른 내용이 글로 정리됩니다. 복사하기 전에 고쳐도 됩니다.',
+  'step3.t': '에이전트에 붙여 넣기',
+  'step3.d': '스킬을 설치한 Claude Code, Codex, Cursor 어디든 됩니다.',
+  'step4.t': '실제 페이지에서 승인',
+  'step4.d': '승인한 그대로 만들어 검사하고 내 취향을 기억합니다.',
+  'sc.here': '이 페이지',
+  'sc.terminal': '내 터미널',
+  'sc.app': '실행 중인 내 앱',
+  'sc.removed': '미정: 섹션 구분',
+  'sc.added': '섹션 구분: 섹션마다 카드',
+  'sc.typed': 'picky-eater 스킬로 설정 화면을 다듬어 줘…',
+  'sc.o1': '개발 서버에서 SettingsPage.tsx 읽는 중',
+  'sc.o2': '4곳에 옵션 그리는 중, 고른 안은 ★',
+  'sc.o3': '리뷰 페이지 →',
+  'sc.draft': '설정 · 초안 1',
+  'sc.approve': '승인',
+  'sc.built': '완성 · 승인한 안과 일치',
+  'err.title': '분석하지 못했습니다',
+  'err.retry': '다시 시도',
+  'err.sample': '샘플로 돌아가기',
+  'err.bad_input': 'GitHub 레포 주소가 아닌 것 같습니다. owner/repo 형식으로 쓰거나 주소를 붙여 넣어 주세요.',
+  'err.not_found': '그 주소에 공개 레포가 없습니다. 비공개 레포는 읽을 수 없습니다.',
+  'err.rate_limited': 'GitHub는 한 네트워크에서 한 시간에 60번까지만 조회할 수 있습니다. 그 횟수를 다 썼으니 {n}분 뒤에 다시 시도해 주세요.',
+  'err.rate_limited_soon': 'GitHub는 한 네트워크에서 한 시간에 60번까지만 조회할 수 있습니다. 그 횟수를 다 썼으니 조금 뒤에 다시 시도해 주세요.',
+  'err.network': 'GitHub에 연결하지 못했습니다. 인터넷 연결을 확인해 주세요.',
+  'err.github': 'GitHub에서 오류가 났습니다. 잠시 뒤에 다시 시도해 주세요.',
+  'err.empty': '그 폴더에는 파일이 없습니다.',
+  'err.no_screens': '이 레포에서 페이지나 컴포넌트 파일을 찾지 못했습니다.',
+  'err.not_configured': '실시간 분석은 아직 켜지 않았습니다. 샘플에서 어떻게 동작하는지 볼 수 있습니다.',
+  'err.busy': '지금 분석 요청이 몰려 있습니다. 1분쯤 뒤에 다시 시도해 주세요.',
+  'err.failed': '분석을 끝내지 못했습니다. 다시 시도하거나 다른 화면을 골라 보세요.',
+  'err.file': '그 파일을 읽지 못했습니다.',
+  'err.offline': '분석 서버에 연결하지 못했습니다. 잠시 뒤에 다시 시도해 주세요.',
+  'how.h2': '세 단계, 승인은 한 번',
+  'how.sub': '위에서 해 본 것은 스킬을 간단히 옮긴 미리보기입니다. 설치하면 실행 중인 실제 페이지에서 동작합니다.',
+  'how1.t': '에이전트가 스케치합니다',
+  'how1.d': '프로젝트를 한 번 읽고 페이지에서 중요한 부분마다 옵션을 두 개에서 네 개씩 그려 올립니다.',
+  'how2.t': '점을 가리켜 고릅니다',
+  'how2.d': '옵션은 페이지 위에 바로 나타납니다. 데스크톱 폭과 휴대폰 폭으로 볼 수 있고 클릭하면 선택됩니다. 디자인 용어는 몰라도 됩니다.',
+  'how3.t': '승인한 대로 만듭니다',
+  'how3.d': '완성한 페이지를 승인한 안과 비교해서 다른 부분은 전부 고치거나 이유를 설명합니다.',
+  'taste.kicker': '설치하면 취향을 배웁니다',
+  'taste.h': '추천 표시가 내 선택을 따라옵니다',
+  'taste.p': '승인할 때마다 고른 내용이 패턴 id로 내 컴퓨터에 남습니다. 페이지에 적힌 글은 저장하지 않습니다. 다음부터는 전에 고른 쪽에 추천 표시가 붙습니다. 같은 프로젝트에서는 바로, 다른 프로젝트에서는 같은 선택이 반복되면 반영됩니다.',
+  'taste.l1': '저장된 내용 보기',
+  'taste.l2': '이 프로젝트에서 끄기',
+  'taste.l3': '전부 지우기',
+  'taste.this': '이번 승인',
+  'taste.next': '다음 초안',
+  'taste.why': '프로젝트 2곳에서 카드 대신 이 안을 골랐습니다',
+  'stat.patterns': '패턴',
+  'stat.decisions': '자주 나오는 결정',
+  'stat.stacks': '검증한 스택',
+  'stat.keys': '계정, API 키, 텔레메트리',
+  'cta.h': '한 번 설치하고 평소 쓰는 말로 부탁하세요.',
+  'cta.q': '요금제 페이지가 밋밋해. 고치기 전에 플랜 카드를 배치하는 방법을 몇 가지 보여 줘.',
+  'foot.license': 'MIT 라이선스',
+  'foot.by': '미리보기 분석: Upstage Solar',
+  'foot.security': '보안',
+};
+
+const DICT = { en, ko };
+let lang = 'en';
+
+function initial() {
+  const asked = new URLSearchParams(location.search).get('lang');
+  if (asked === 'ko' || asked === 'en') return asked;
+  try {
+    const saved = localStorage.getItem('pe-lang');
+    if (saved === 'ko' || saved === 'en') return saved;
+  } catch { /* storage may be blocked */ }
+  return 'en';
+}
+
+export function getLang() {
+  return lang;
+}
+
+/** A string of the interface. `{name}` in it is replaced from `values`. */
+export function t(key, values) {
+  const text = DICT[lang][key] ?? en[key] ?? key;
+  return values ? text.replace(/\{(\w+)\}/g, (_, name) => String(values[name] ?? '')) : text;
+}
+
+/** Writes the current language into every element that names a string. */
+export function applyI18n(root = document) {
+  document.documentElement.lang = lang;
+  document.title = t('doc.title');
+  for (const el of root.querySelectorAll('[data-i18n]')) el.textContent = t(el.dataset.i18n);
+  for (const el of root.querySelectorAll('[data-i18n-attr]')) {
+    for (const pair of el.dataset.i18nAttr.split(';')) {
+      const [attribute, key] = pair.split(':');
+      if (attribute && key) el.setAttribute(attribute.trim(), t(key.trim()));
+    }
+  }
+  for (const button of document.querySelectorAll('[data-lang]')) button.setAttribute('aria-pressed', String(button.dataset.lang === lang));
+}
+
+export function setLang(next) {
+  lang = next === 'ko' ? 'ko' : 'en';
+  try { localStorage.setItem('pe-lang', lang); } catch { /* storage may be blocked */ }
+  applyI18n();
+}
+
+export function initLang() {
+  lang = initial();
+  applyI18n();
+  return lang;
+}

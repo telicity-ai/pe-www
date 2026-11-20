@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>picky-eater · Pick the UI before your agent builds it</title>
+<meta name="description" content="picky-eater is an Agent Skill for Claude Code, Codex and Cursor. Your agent sketches options on your page, you pick, it builds exactly what you approved. Try it on a GitHub repository.">
+<meta property="og:title" content="picky-eater">
+<meta property="og:description" content="Your agent sketches. You pick. It builds exactly that.">
+<meta property="og:type" content="website">
+<meta name="theme-color" content="#0a0a0a">
+<meta name="color-scheme" content="dark">
+<link rel="icon" href="assets/icon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css" rel="stylesheet">
+<link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+
+<header class="nav">
+  <a class="logo" href="./"><em>PE</em>picky-eater<small>0.2</small></a>
+  <span class="sp"></span>
+  <nav class="nav-links" aria-label="Site">
+    <a href="https://github.com/telicity-ai/picky-eater/blob/main/docs/installation.md" data-i18n="nav.docs">Docs</a>
+    <a href="https://github.com/telicity-ai/picky-eater/blob/main/docs/patterns.md" data-i18n="nav.patterns">Patterns</a>
+    <a href="https://github.com/telicity-ai/picky-eater/blob/main/docs/compatibility.md" data-i18n="nav.compat">Compatibility</a>
+  </nav>
+  <div class="lang" role="group" aria-label="Language">
+    <button type="button" data-lang="en" aria-pressed="true">EN</button>
+    <button type="button" data-lang="ko" aria-pressed="false" lang="ko">한국어</button>
+  </div>
+  <a class="gh" href="https://github.com/telicity-ai/picky-eater"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-github"/></svg>GitHub</a>
+</header>
+
+<main>
+<section class="hero">
+  <div class="badge"><i></i><span data-i18n="hero.badge">Agent Skill for Claude Code · Codex · Cursor</span></div>
+  <h1><span data-i18n="hero.h1a">Your agent sketches. You pick.</span><span class="dimmer" data-i18n="hero.h1b">It builds exactly that.</span></h1>
+  <p class="sub" data-i18n="hero.sub">picky-eater puts a few drawn options on your real page before any code changes. Point at a dot, keep what you like, approve.</p>
+
+  <div class="ctl">
+    <div>
+      <div class="cap"><span data-i18n="try.cap">Try it on your repo</span><u data-i18n="try.note">public repos · read once, never stored</u></div>
+      <form class="try" id="try" novalidate>
+        <svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-github"/></svg>
+        <label for="repo">github.com/</label>
+        <input id="repo" name="repo" placeholder="owner/repo" autocomplete="off" autocapitalize="off" spellcheck="false" inputmode="url" data-i18n-attr="aria-label:try.cap">
+        <button type="submit"><span data-i18n="try.button">Analyze</span> <span aria-hidden="true">→</span></button>
+      </form>
+    </div>
+    <div>
+      <div class="cap"><span data-i18n="install.cap">Install the skill</span></div>
+      <div class="inst"><s>$</s><code>npx <b>skills</b> add telicity-ai/picky-eater</code>
+        <button type="button" class="icb" data-copy="npx skills add telicity-ai/picky-eater --skill picky-eater -a claude-code codex cursor -y"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-copy"/></svg><span data-i18n="copy">Copy</span></button>
+      </div>
+    </div>
+  </div>
+  <p class="note"><span data-i18n="hero.note">No repo at hand? The sample below is live.</span> <button type="button" class="linkish" id="sample" data-i18n="hero.reset">Reset to the sample</button></p>
+</section>
+
+<section class="pg" id="playground" aria-label="Playground">
+  <div class="tb">
+    <span class="repo"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-repo"/></svg><b id="rname"></b><span id="rsub"></span></span>
+    <span class="tag" id="rtag" data-i18n="pg.sample">sample</span>
+    <span class="sp"></span>
+    <span class="seg" id="seg" role="group" aria-label="Width"><button type="button" class="on" data-w="desk" data-i18n="pg.desktop">Desktop</button><button type="button" data-w="phone" data-i18n="pg.phone">Phone</button></span>
+    <span class="prog"><span class="pips" id="pips"></span><span id="pcount"></span></span>
+  </div>
+  <div class="body">
+    <aside class="rail">
+      <div class="rh" data-i18n="rail.screens">Screens found</div>
+      <div id="screens" class="screens"></div>
+      <div class="rh rh-stack" data-i18n="rail.stack">Stack</div>
+      <div class="stk" id="stack"></div>
+    </aside>
+    <div class="stage" id="stage">
+      <div class="frame" id="frame" tabindex="-1"></div>
+      <div class="pop" id="pop" role="group"></div>
+    </div>
+    <div class="pr">
+      <div class="ph"><span data-i18n="prompt.title">Prompt</span> <small data-i18n="prompt.editable">editable</small><span class="sp"></span><button type="button" class="linkish" id="reset" hidden data-i18n="prompt.reset">Reset</button></div>
+      <textarea id="prompt" spellcheck="false" data-i18n-attr="aria-label:prompt.title"></textarea>
+      <div class="df" id="df" aria-live="polite"></div>
+      <div class="pf">
+        <button type="button" class="copy" id="copy"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-copy"/></svg><span data-i18n="prompt.copy">Copy prompt</span></button>
+        <p data-i18n="prompt.hint">Paste into Claude Code, Codex or Cursor</p>
+      </div>
+    </div>
+
+    <div class="ov" id="ov" hidden>
+      <div class="anp" role="status"><i class="spn"></i><span id="anst"></span><em id="ann"></em><div class="anb"><i id="anbar"></i></div></div>
+      <div class="anm">
+        <div class="scn-wrap"><div class="scn" id="scn" aria-hidden="true">
+          <div class="sc s1"><span class="wh" data-i18n="sc.here">on this page</span>
+            <div class="m-page"><i></i><div class="ms"><i></i><i></i></div><div class="ms"><i></i><i></i></div><div class="ms"><i></i><i></i></div><u class="mdot"></u></div>
+            <div class="m-pop"><div class="mth"><i class="hr"></i><i></i><i class="hr"></i><i></i></div><div class="mth k"><b></b><b></b></div></div>
+            <i class="cur"></i></div>
+          <div class="sc s2"><span class="wh" data-i18n="sc.here">on this page</span>
+            <div class="m-pr"><div class="mh" data-i18n="prompt.title">Prompt</div><i class="g" style="width:88%"></i><i class="g" style="width:64%"></i>
+              <div class="md r" data-i18n="sc.removed">Still open: sections</div><div class="md a" data-i18n="sc.added">Sections: each in its own card</div>
+              <i class="g" style="width:74%"></i><div class="mbtn"><span data-i18n="prompt.copy">Copy prompt</span><span data-i18n="copied">Copied</span></div></div>
+            <i class="cur"></i></div>
+          <div class="sc s3"><span class="wh" data-i18n="sc.terminal">your terminal</span>
+            <div class="m-term"><div class="mbar"><i></i><i></i><i></i><span>claude</span></div>
+              <div class="mtb"><p class="ty"><em>&rsaquo;</em><span data-i18n="sc.typed">Use the picky-eater skill on the settings page…</span></p>
+                <p class="o1">&#9679; <span data-i18n="sc.o1">Reading SettingsPage.tsx on your dev server</span></p>
+                <p class="o2">&#9679; <span data-i18n="sc.o2">Drawing 4 areas, your picks marked ★</span></p>
+                <p class="o3"><span data-i18n="sc.o3">Review page →</span> <b>http://127.0.0.1:4173</b></p></div></div></div>
+          <div class="sc s4"><span class="wh" data-i18n="sc.app">your running app</span>
+            <div class="m-rev"><div class="mtop"><span data-i18n="sc.draft">Settings · Draft 1</span><u class="pp"><i></i><i></i><i></i></u><b class="apv" data-i18n="sc.approve">Approve</b></div>
+              <div class="mreal"><div class="rnav"><i class="lg"></i><i></i><i></i></div>
+                <div class="rc"><i></i><i></i><u class="d d1"></u></div><div class="rc"><i></i><i></i><u class="d d2"></u></div>
+                <div class="rbar"><b></b><u class="d d3"></u></div></div>
+              <div class="toast">&#10003; <span data-i18n="sc.built">Built · matches what you approved</span></div></div>
+            <i class="cur"></i></div>
+        </div></div>
+        <div class="nx">
+          <div class="nxh"><small data-i18n="an.while">While this runs</small><span data-i18n="an.next">What you do next</span></div>
+          <ol id="nx">
+            <li><em>1</em><div><b data-i18n="step1.t">Pick on the sketch</b><span data-i18n="step1.d">Point at a dot. Each option is a drawing of the result.</span></div></li>
+            <li><em>2</em><div><b data-i18n="step2.t">Copy the prompt</b><span data-i18n="step2.d">Your picks as text. Edit it before you copy.</span></div></li>
+            <li><em>3</em><div><b data-i18n="step3.t">Paste it into your agent</b><span data-i18n="step3.d">Claude Code, Codex or Cursor, with the skill installed.</span></div></li>
+            <li><em>4</em><div><b data-i18n="step4.t">Approve on your real page</b><span data-i18n="step4.d">It builds exactly that, checks it, and remembers your taste.</span></div></li>
+          </ol>
+        </div>
+      </div>
+    </div>
+
+    <div class="er" id="er" hidden role="alert">
+      <div class="er-box">
+        <i class="er-mark" aria-hidden="true">!</i>
+        <h3 data-i18n="err.title">That did not work</h3>
+        <p id="ermsg"></p>
+        <div class="er-act">
+          <button type="button" class="btn" id="erretry" data-i18n="err.retry">Try again</button>
+          <button type="button" class="btn btn--ghost" id="ersample" data-i18n="err.sample">Back to the sample</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+<p class="pg-note" data-i18n="pg.note">This preview reads source files and draws a wireframe. Installed, the skill works on your running page.</p>
+
+<section class="block">
+  <h2 data-i18n="how.h2">Three steps, one approval</h2>
+  <p class="h2s" data-i18n="how.sub">What you tried above is a sketch of the skill. Installed, it works on your running page.</p>
+  <div class="how">
+    <div><i class="gl a"></i><em>01</em><h3 data-i18n="how1.t">The agent sketches</h3><p data-i18n="how1.d">It reads your project once and lays two to four drawn options over each part of the page that matters.</p></div>
+    <div><i class="gl b"></i><em>02</em><h3 data-i18n="how2.t">You point at the dots</h3><p data-i18n="how2.d">Each option shows on the page itself, at desktop and phone width. Click to keep it. No design vocabulary.</p></div>
+    <div><i class="gl c"></i><em>03</em><h3 data-i18n="how3.t">It builds what you approved</h3><p data-i18n="how3.d">The built page is measured against the approved one, and every difference is fixed or explained.</p></div>
+  </div>
+
+  <div class="taste">
+    <div>
+      <em data-i18n="taste.kicker">Installed, it learns your taste</em>
+      <h3 data-i18n="taste.h">The star follows your choices</h3>
+      <p data-i18n="taste.p">Each approval is kept on your machine as pattern ids, never your page's text. Next time the suggested mark sits where you chose before: at once in the same project, elsewhere once a choice repeats.</p>
+      <ul><li><code>picky-eater taste</code><span data-i18n="taste.l1">shows what is kept</span></li><li><code>--off</code><span data-i18n="taste.l2">stops it for a project</span></li><li><code>--forget-all</code><span data-i18n="taste.l3">deletes it</span></li></ul>
+    </div>
+    <div class="tv" aria-hidden="true">
+      <div class="tl" data-i18n="taste.this">This approval</div>
+      <div class="tr"><div class="th2"><i class="hr"></i><i class="w3"></i><i class="w8"></i><i class="hr"></i><i class="w3"></i><i class="w8"></i></div>
+        <div class="th2"><b class="bx"><i class="w5"></i></b><b class="bx"><i class="w5"></i></b></div>
+        <div class="th2 pick"><span class="rw"><i class="lf"></i><u class="gr"></u></span><span class="rw"><i class="lf"></i><u class="gr"></u></span><span class="rw"><i class="lf"></i><u class="gr"></u></span></div>
+        <i class="star st-fixed">&#9733;</i></div>
+      <div class="tf"><svg viewBox="0 0 16 16"><path d="M2 4.5A1.5 1.5 0 0 1 3.5 3h3l1.5 1.8h4.5A1.5 1.5 0 0 1 14 6.3v5.2a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 11.5z"/></svg><tt>~/.picky-eater/taste/</tt><span>label-left <b class="cnt"><i>&times;1</i><i>&times;2</i></b></span></div>
+      <div class="tl" data-i18n="taste.next">Next draft</div>
+      <div class="tr"><div class="th2"><i class="hr"></i><i class="w3"></i><i class="w8"></i><i class="hr"></i><i class="w3"></i><i class="w8"></i></div>
+        <div class="th2"><b class="bx"><i class="w5"></i></b><b class="bx"><i class="w5"></i></b></div>
+        <div class="th2"><span class="rw"><i class="lf"></i><u class="gr"></u></span><span class="rw"><i class="lf"></i><u class="gr"></u></span><span class="rw"><i class="lf"></i><u class="gr"></u></span></div>
+        <i class="star mv">&#9733;</i></div>
+      <p class="tw"><b>&#9733;</b><span data-i18n="taste.why">You chose this over cards in 2 projects</span></p>
+    </div>
+  </div>
+
+  <div class="stats">
+    <div><b>146</b><span data-i18n="stat.patterns">patterns</span></div>
+    <div><b>50</b><span data-i18n="stat.decisions">recurring decisions</span></div>
+    <div><b>14</b><span data-i18n="stat.stacks">stacks tested</span></div>
+    <div><b>0</b><span data-i18n="stat.keys">accounts, keys or telemetry</span></div>
+  </div>
+</section>
+
+<section class="cta">
+  <h3 data-i18n="cta.h">Install once. Ask in plain words.</h3>
+  <q data-i18n="cta.q">Our pricing page feels flat. Show me a few ways to arrange the plan cards before you change it.</q>
+  <div class="inst"><s>$</s><code>npx <b>skills</b> add telicity-ai/picky-eater</code>
+    <button type="button" class="icb" data-copy="npx skills add telicity-ai/picky-eater --skill picky-eater -a claude-code codex cursor -y"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-copy"/></svg><span data-i18n="copy">Copy</span></button>
+  </div>
+</section>
+</main>
+
+<footer class="foot">
+  <span data-i18n="foot.license">MIT License</span><span>telicity-ai</span>
+  <span class="sp"></span>
+  <span class="foot-by" data-i18n="foot.by">Preview analysis by Upstage Solar</span>
+  <a href="https://github.com/telicity-ai/picky-eater">GitHub</a>
+  <a href="https://github.com/telicity-ai/picky-eater/blob/main/docs/installation.md" data-i18n="nav.docs">Docs</a>
+  <a href="https://github.com/telicity-ai/picky-eater/blob/main/SECURITY.md" data-i18n="foot.security">Security</a>
+</footer>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-github" viewBox="0 0 16 16"><path fill="currentColor" d="M8 0a8 8 0 0 0-2.53 15.59c.4.07.55-.17.55-.38v-1.33c-2.23.48-2.7-1.07-2.7-1.07-.36-.92-.89-1.17-.89-1.17-.73-.5.05-.49.05-.49.8.06 1.23.83 1.23.83.72 1.22 1.88.87 2.33.66.07-.52.28-.87.5-1.07-1.77-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.6 7.6 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.28.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48v2.2c0 .21.15.46.55.38A8 8 0 0 0 8 0z"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 16 16"><rect x="5.5" y="5.5" width="8" height="8" rx="1.8" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M10.5 3.2v-.2a1.5 1.5 0 0 0-1.5-1.5H4A1.5 1.5 0 0 0 2.5 3v5A1.5 1.5 0 0 0 4 9.5h.2" fill="none" stroke="currentColor" stroke-width="1.5"/></symbol>
+  <symbol id="i-repo" viewBox="0 0 16 16"><path fill="currentColor" d="M2 2.5A2.5 2.5 0 0 1 4.5 0h8.75a.75.75 0 0 1 .75.75v12.5a.75.75 0 0 1-.75.75h-2.5a.75.75 0 0 1 0-1.5h1.75v-2h-8a1 1 0 0 0-.71 1.7.75.75 0 1 1-1.07 1.05A2.5 2.5 0 0 1 2 11.5zm10.5-1h-8a1 1 0 0 0-1 1v6.7c.3-.13.64-.2 1-.2h8zM5 12.25a.25.25 0 0 1 .25-.25h3.5a.25.25 0 0 1 .25.25v3.25a.25.25 0 0 1-.4.2l-1.45-1.09a.25.25 0 0 0-.3 0L5.4 15.7a.25.25 0 0 1-.4-.2z"/></symbol>
+</svg>
+
+<script type="module" src="assets/app.js"></script>
+</body>
+</html>
