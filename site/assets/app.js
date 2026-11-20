@@ -76,15 +76,18 @@ function renderPop() {
     return;
   }
   const thumbContext = { pick: (id) => screen.choices[id], chosen: () => false };
+  // Only drawings: what an option is called and why one is suggested are read by pointing at it
+  // (and by a screen reader), so that the options take as little of the page as possible.
   const options = area.options.map((option) => {
     const selected = screen.choices[area.id] === option.id;
-    return `<button type="button" class="opt${selected ? ' sel' : ''}" data-option="${esc(option.id)}" aria-pressed="${selected}">${
-      option.suggested ? `<i class="star" title="${esc(t('pop.suggested'))}">★</i>` : ''
-    }<div class="th">${renderThumb(screen.analysis, area, option, thumbContext)}${option.keep ? `<span class="now">${esc(t('pop.now'))}</span>` : ''}</div><span>${esc(option.label)}</span></button>`;
+    const reason = option.suggested ? `${t('pop.suggested')}${option.because ? `: ${option.because}` : ''}` : '';
+    const name = reason ? `${option.label}. ${reason}` : option.label;
+    return `<button type="button" class="opt${selected ? ' sel' : ''}" data-option="${esc(option.id)}" aria-pressed="${selected}" aria-label="${esc(name)}" title="${esc(option.label)}">${
+      option.suggested ? `<i class="star" title="${esc(reason)}">★</i>` : ''
+    }<div class="th">${renderThumb(screen.analysis, area, option, thumbContext)}${option.keep ? `<span class="now">${esc(t('pop.now'))}</span>` : ''}</div></button>`;
   }).join('');
-  const reason = area.options.find((o) => o.suggested && o.because)?.because;
   pop.setAttribute('aria-label', area.label);
-  pop.innerHTML = `<div class="pop-h">${esc(area.label)}</div><div class="pop-o">${options}</div>${reason ? `<div class="pop-why"><b>★</b><span>${esc(reason)}</span></div>` : ''}`;
+  pop.innerHTML = `<div class="pop-h">${esc(area.label)}</div><div class="pop-o">${options}</div>`;
   pop.className = 'pop show';
   fitThumbs();
 }
@@ -107,26 +110,68 @@ function fitThumbs() {
   }
 }
 
-/** Puts the options under their dot, or above it when there is no room, and keeps them inside the stage. */
+/**
+ * Puts the options where they do not cover the part of the page they change. In this order:
+ * above that part, below it, beside the page (in a column), and only when none of these has
+ * room, along the edge of the stage that is farther from the dot.
+ */
 function placePop() {
   if (!state.open) return;
-  const dot = frame.querySelector(`[data-dot="${CSS.escape(state.open)}"]`);
-  if (!dot) return;
+  const id = CSS.escape(state.open);
+  const dot = frame.querySelector(`[data-dot="${id}"]`);
+  const area = frame.querySelector(`[data-area="${id}"]`);
+  if (!dot || !area) return;
   const outer = stage.getBoundingClientRect();
   const port = frame.getBoundingClientRect();
-  const at = dot.getBoundingClientRect();
-  if (at.bottom < port.top || at.top > port.bottom) {
+  const box = area.getBoundingClientRect();
+  const top = Math.max(box.top, port.top);
+  const bottom = Math.min(box.bottom, port.bottom);
+  if (bottom <= top) {
     pop.style.visibility = 'hidden';
     return;
   }
   pop.style.visibility = '';
-  const width = pop.offsetWidth;
-  const height = pop.offsetHeight;
-  const left = Math.max(8, Math.min(at.right - outer.left - width + 6, outer.width - width - 8));
-  let top = at.bottom - outer.top + 12;
-  if (top + height > outer.height - 6) top = Math.max(6, at.top - outer.top - height - 12);
+  const GAP = 12;
+  const EDGE = 6;
+  const clamp = (value, min, max) => Math.max(min, Math.min(value, max));
+
+  pop.classList.remove('pop--col');
+  let width = pop.offsetWidth;
+  let height = pop.offsetHeight;
+  const alongRight = () => clamp(box.right - outer.left - width + 8, EDGE, Math.max(EDGE, outer.width - width - EDGE));
+  let left = alongRight();
+  let y;
+
+  if (height <= top - outer.top - GAP - EDGE) {
+    y = top - outer.top - GAP - height;
+  } else if (height <= outer.bottom - bottom - GAP - EDGE) {
+    y = bottom - outer.top + GAP;
+  } else {
+    // The part fills the view: stand beside the page, over the margin or the list of screens.
+    pop.classList.add('pop--col');
+    width = pop.offsetWidth;
+    height = pop.offsetHeight;
+    const body = stage.parentElement.getBoundingClientRect();
+    const fitsTall = height <= outer.height - 2 * EDGE;
+    if (fitsTall && width <= outer.right - port.right - 2 * EDGE) {
+      left = port.right - outer.left + EDGE;
+    } else if (fitsTall && width <= port.left - body.left - 2 * EDGE) {
+      left = port.left - outer.left - EDGE - width;
+    } else {
+      pop.classList.remove('pop--col');
+      width = pop.offsetWidth;
+      height = pop.offsetHeight;
+      left = alongRight();
+      const dotAt = dot.getBoundingClientRect();
+      const dotHigh = dotAt.top + dotAt.height / 2 < outer.top + outer.height / 2;
+      pop.style.left = `${left}px`;
+      pop.style.top = `${dotHigh ? Math.max(EDGE, outer.height - height - EDGE) : EDGE}px`;
+      return;
+    }
+    y = clamp(dot.getBoundingClientRect().top - outer.top - 10, EDGE, outer.height - height - EDGE);
+  }
   pop.style.left = `${left}px`;
-  pop.style.top = `${top}px`;
+  pop.style.top = `${y}px`;
 }
 
 function renderToolbar() {
