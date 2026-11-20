@@ -8,7 +8,7 @@
   "engines": { "node": ">=20" },
   "scripts": {
     "dev": "node scripts/dev.mjs",
-    "test": "node --test test/",
+    "test": "node --test \"test/*.test.mjs\"",
     "sync-catalog": "node scripts/sync-catalog.mjs"
   }
 }
