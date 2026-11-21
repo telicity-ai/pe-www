@@ -93,10 +93,15 @@ export function assemble(board, fallbackTitle = '') {
     const size = area.place.to - area.place.from;
     marks.push({ at: area.place.from, open: true, size, text: `<!--pe:${area.id}-->` }, { at: area.place.to, open: false, size, text: `<!--/pe:${area.id}-->` });
   }
+  // A page cut off in the middle of a tag: a mark placed after it would be read as part of the tag.
+  const whole = board.page.replace(/<[^>]*$/, '');
   // Written from the end of the text backwards; at one offset an inner area closes first and opens last.
   marks.sort((a, b) => b.at - a.at || (a.open === b.open ? (a.open ? a.size - b.size : b.size - a.size) : a.open ? -1 : 1));
-  let text = board.page;
-  for (const mark of marks) text = text.slice(0, mark.at) + mark.text + text.slice(mark.at);
+  let text = whole;
+  for (const mark of marks) {
+    const at = Math.min(mark.at, whole.length);
+    text = text.slice(0, at) + mark.text + text.slice(at);
+  }
 
   const doc = parseMarkup(text);
   const comments = new Map();
@@ -107,6 +112,13 @@ export function assemble(board, fallbackTitle = '') {
   for (const area of [...choices].sort((a, b) => (a.place.to - a.place.from) - (b.place.to - b.place.from))) {
     const from = comments.get(`pe:${area.id}`);
     const to = comments.get(`/pe:${area.id}`);
+    // An area cut off with the page closes at its end, inside whatever was still open there:
+    // it ends where the element it began with ends.
+    if (from && to && area.place.to === board.page.length && from.parentNode !== to.parentNode && from.parentNode?.contains(to)) {
+      let outer = to;
+      while (outer.parentNode !== from.parentNode) outer = outer.parentNode;
+      outer.after(to);
+    }
     // Marks that the HTML tore apart (a stretch that is not one element after all) give no area.
     if (!from || !to || from.parentNode !== to.parentNode) continue;
     const range = doc.createRange();

@@ -170,3 +170,10 @@ test('a page that repeats one line is noticed, closing tags are not', () => {
   assert.equal(repeatedLine(`<main>\n${`${wrapper}\n`.repeat(2)}<p>Hi</p>\n`), null);
   assert.equal(repeatedLine(`<main>\n${'</div>\n'.repeat(6)}`), null);
 });
+
+test('in a page that was cut off, an element still open runs to its end', () => {
+  const page = '<main><div class="list"><div class="row">One</div><div class="row">Tw';
+  assert.equal(findElement(page, '<div class="list">'), null);
+  assert.deepEqual(findElement(page, '<div class="list">', true), { from: 6, to: page.length });
+  assert.deepEqual(findElement(page, '<div class="row">', true), { from: 24, to: 50 });
+});

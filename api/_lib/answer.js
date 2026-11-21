@@ -228,13 +228,17 @@ export function findStart(page, anchor, exact = false) {
   return page.search(new RegExp(`<${named[1]}\\b[^>]*\\bclass\\s*=\\s*"\\s*${classes}\\s*"`));
 }
 
-/** The element of `page` that begins as `anchor` says: `{ from, to }`, or null. */
-export function findElement(page, anchor) {
+/**
+ * The element of `page` that begins as `anchor` says: `{ from, to }`, or null. With `open` (a
+ * page that was cut off), an element still open at its end runs to the end.
+ */
+export function findElement(page, anchor, open = false) {
   const at = findStart(page, anchor);
   if (at < 0) return null;
   const scan = new ElementScan();
   const end = scan.push(page.slice(at));
-  return end < 0 ? null : { from: at + scan.from, to: at + end };
+  if (end < 0) return open && scan.from >= 0 ? { from: at + scan.from, to: page.length } : null;
+  return { from: at + scan.from, to: at + end };
 }
 
 /** Reads the answer of one call about an option: its label, the reason for it when it is the one suggested, and its element. */

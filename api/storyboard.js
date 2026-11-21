@@ -196,6 +196,7 @@ async function draw({ query, files, styles, send: pass, signal: outer, again = f
   let captures = []; // areas whose element is being written
   let title = null;
   let summary = null;
+  let cut = false; // the page was cut off: elements still open at its end run to it
 
   /** One option of an area, in a call of its own. An answer that turns out to be source code is broken off and asked for once more. */
   async function writeOption(area, option, attempt = 0) {
@@ -252,6 +253,8 @@ async function draw({ query, files, styles, send: pass, signal: outer, again = f
   /** The area is the element in this stretch of the page: say so, and have its options drawn. */
   const place = (area, from, to) => {
     if (area.today) return;
+    // An element cut off with the page is an area unless it is most of the page.
+    if (to === page.length && cut && to - from > page.length * 0.7) return;
     const html = markup(page.slice(from, to), AREA_CHARS + 1);
     if (!/<[a-z]/i.test(html) || html.length > AREA_CHARS) return;
     area.today = html;
@@ -316,10 +319,12 @@ async function draw({ query, files, styles, send: pass, signal: outer, again = f
     if (phase !== 'page') return;
     watch();
     flush();
+    cut ||= page.length >= LIMITS.page;
+    if (cut) for (const capture of captures) if (capture.scan.from >= 0) place(capture.area, capture.at + capture.scan.from, page.length);
     captures = [];
     // What the plan said of an area's beginning may be a little off: its opening tag alone will do now.
     for (const area of areas) {
-      const found = area.today || !area.anchor ? null : findElement(page, area.anchor);
+      const found = area.today || !area.anchor ? null : findElement(page, area.anchor, cut);
       if (found) place(area, found.from, found.to);
     }
     marks.page = at();
@@ -339,7 +344,7 @@ async function draw({ query, files, styles, send: pass, signal: outer, again = f
         endPage();
         // An area that was not marked in the page is found by the opening tag of its element.
         const area = named(rest);
-        const found = area && !area.today && rest.includes('|') ? findElement(page, rest.slice(rest.indexOf('|') + 1)) : null;
+        const found = area && !area.today && rest.includes('|') ? findElement(page, rest.slice(rest.indexOf('|') + 1), cut) : null;
         if (found) place(area, found.from, found.to);
       } else if (name === 'TITLE') {
         endPage();
@@ -368,6 +373,7 @@ async function draw({ query, files, styles, send: pass, signal: outer, again = f
     throw new Again(source ? 'source' : 'loop', looped);
   }
   outer.removeEventListener('abort', stop);
+  cut = result.finish === 'length';
   reader.end();
   if (!again && phase === 'page' && result.finish !== 'length') {
     // The model ended its answer inside the page (it does, now and then, after a few lines
@@ -403,7 +409,7 @@ async function draw({ query, files, styles, send: pass, signal: outer, again = f
     if (areas.length > planned.length) {
       send({ t: 'plan', areas: areas.map(({ id, label, decision, options }) => ({ id, label, ...(decision ? { decision } : {}), options: options.map((o) => o.id) })), file: query.path });
       for (const area of areas.slice(planned.length)) {
-        const found = findElement(page, area.anchor);
+        const found = findElement(page, area.anchor, cut);
         if (found) place(area, found.from, found.to);
       }
     }
