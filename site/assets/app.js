@@ -142,13 +142,12 @@ function markSelection() {
 }
 
 /**
- * Puts the options where they do not cover the part of the page they change. In this order:
- * above that part, below it, beside the page (in a column), and only when none of these has
- * room, along the edge of the stage that is farther from the dot.
+ * Puts the options by the dot of the part they change. In this order: beside a narrow page (a
+ * phone leaves room in the stage itself), above that part, below it when it is low enough for
+ * that to be near the dot, and otherwise right under the dot, over the part.
  *
  * The part is taken as it was when it was opened (the frame holds that still) and as tall as
- * its tallest option makes it: the options stay where they are while one of them is tried, and
- * out of the way of what trying it changes.
+ * its tallest option makes it: the options stay where they are while one of them is tried.
  */
 function placePop() {
   if (!state.open) return;
@@ -166,8 +165,9 @@ function placePop() {
     return;
   }
   pop.style.visibility = '';
-  const GAP = 14;
+  const GAP = 10;
   const EDGE = 6;
+  const NEAR = 150; // how far below the dot the options may begin and still be by it
   const clamp = (value, min, max) => Math.max(min, Math.min(value, max));
 
   const set = (left, y) => {
@@ -182,23 +182,17 @@ function placePop() {
     set(leftOf ? port.left - outer.left - EDGE - width : port.right - outer.left + EDGE, clamp(dot.top - outer.top - 10, EDGE, outer.height - height - EDGE));
     return true;
   };
-
-  // A narrow page (a phone) leaves room in the stage itself: the options stand beside it.
   if (beside(outer.right - port.right, false) || beside(port.left - outer.left, true)) return;
 
   pop.classList.remove('pop--col');
   const width = pop.offsetWidth;
   const height = pop.offsetHeight;
-  const left = clamp(box.right - outer.left - width + 8, EDGE, Math.max(EDGE, outer.width - width - EDGE));
+  // The options end where the dot does, on its side of the part.
+  const left = clamp(dot.right - outer.left - width + 8, EDGE, Math.max(EDGE, outer.width - width - EDGE));
+  const lowest = Math.max(EDGE, outer.height - height - EDGE);
   if (height <= top - outer.top - GAP - EDGE) return set(left, top - outer.top - GAP - height);
-  if (height <= outer.bottom - bottom - GAP - EDGE) return set(left, bottom - outer.top + GAP);
-
-  // The part fills the view: stand beside the page, over the list of screens.
-  if (beside(port.left - stage.parentElement.getBoundingClientRect().left, true)) return;
-
-  pop.classList.remove('pop--col');
-  const dotHigh = (dot.top + dot.bottom) / 2 < outer.top + outer.height / 2;
-  set(left, dotHigh ? Math.max(EDGE, outer.height - pop.offsetHeight - EDGE) : EDGE);
+  if (bottom + GAP - dot.bottom <= NEAR && height <= outer.bottom - bottom - GAP - EDGE) return set(left, bottom - outer.top + GAP);
+  set(left, clamp(dot.bottom - outer.top + GAP, EDGE, lowest));
 }
 
 function openArea(id, fromKeyboard = false) {
