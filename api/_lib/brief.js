@@ -122,7 +122,8 @@ THE AREAS
 THE PAGE
 - The whole HTML of the screen as it is today, the areas included. It starts with ONE root element that carries the classes the application puts on <html>, <body> or its root (background, text color, font), with style="min-height:100vh".
 - The screen in its ordinary state: when the code returns one thing while loading, another after an error and another with data, write the one with data, as a signed-in person finds it on an ordinary day.
-- When a layout or parent route file is among the files, the screen sits inside what that file renders (a sidebar, a top bar): reproduce that frame around the screen in a few lines: its outer containers with their classes, and its title or logo. Leave its navigation and its other content out, and go on to the screen itself, which is what this is about. Do not invent a frame.
+- When a layout or parent route file is among the files, the screen sits inside what that file renders (a sidebar, a top bar): reproduce that frame around the screen in a few lines: its outer containers with their classes, and its title or logo. Leave its navigation and its other content out, and go on to the screen itself, which is what this is about. A sidebar or panel whose content you leave out is left out whole: never draw an empty one. Do not invent a frame.
+- Keep the classes that place the screen where the code places it: a column the code centers (mx-auto, items-center, justify-center, flex-1 on the containers that fill the height) is centered in the mockup too.
 - Each area's element stands in the page, complete, and begins with the characters that its @@AREA line gives.
 - An area is the ONE element that holds it whole: the list, not a row of it.
 - A person waits while you write, and the page is cut off after about 100 lines: the screen itself must be whole by then. Leave out what cannot be seen and what lies below the first screenful and a half; of a long list of similar things (navigation entries, table rows, cards, steps, fields of a long form) write 3.
@@ -158,7 +159,7 @@ the element with that pattern
 @@END
 
 - @@OPTION: at most 8 plain words, no design vocabulary and no pattern names ("A bar that stays at the bottom").${option.suggested ? '\n- @@WHY: one sentence of at most 22 words, with a reason that comes from this screen.' : ''}
-- The HTML replaces the element of today: ONE element that fits in the same place (the same kind of child its parent expects), with the same content and nothing that stands around it today. Build it from the classes that the element of today and the project's components use, so that it looks like it belongs to this product. It must look clearly different from today. At most about 30 lines.
+- The HTML replaces the element of today: ONE element that fits in the same place (the same kind of child its parent expects), with the same content and nothing that stands around it today. Build it from the classes that the element of today and the project's components use, so that it looks like it belongs to this product: a button keeps every class of a button of today, its padding, height and text size included. It must look clearly different from today. At most about 30 lines.
 
 EXAMPLE (another screen: rows of switches, drawn with the pattern checkbox)
 ${OPTION_EXAMPLE}

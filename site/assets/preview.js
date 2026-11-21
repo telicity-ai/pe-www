@@ -76,6 +76,44 @@ function drawIcon(svg) {
   if (icon) cleanElement(svg);
 }
 
+const classes = (el) => (el.getAttribute('class') ?? '').split(/\s+/).filter(Boolean);
+const has = (list, pattern) => list.some((c) => pattern.test(c.replace(/^(?:[a-z0-9-]+:)*!?/, '')));
+const PADDING = /^-?(?:p|px|ps|pl)-/;
+const TEXT_SIZE = /^text-(?:xs|sm|base|lg|[2-9]?xl|\[\d)/;
+const OWN_PLACE = /^(?:m|mx|ml|mr|ms|me)-|^self-|^justify-self-|^place-self-|^absolute$|^fixed$/;
+const ALIGNED = /^(?:items|place-items|justify-items)-/;
+
+/**
+ * What a model tends to drop when it copies markup: a button's size classes (it then touches its
+ * own border), and the margin that centers a column of limited width.
+ */
+function repair(root) {
+  // A frame drawn without its content (a sidebar with nothing in it) would only push the screen aside.
+  for (const el of root.querySelectorAll('aside, nav, [data-slot="sidebar"], [data-sidebar="sidebar"]')) {
+    if (!el.textContent.trim() && !el.querySelector('svg, input, button, [data-picture]')) el.remove();
+  }
+  for (const el of root.querySelectorAll('button, [data-slot="button"], [role="button"]')) {
+    const list = classes(el);
+    const styled = has(list, /^(?:border|bg-|rounded|shadow)/);
+    const square = has(list, /^(?:size-|w-|aspect-|rounded-full$)/);
+    if (!styled || square || !el.textContent.trim()) continue;
+    if (!has(list, PADDING)) list.push('px-3');
+    if (!has(list, TEXT_SIZE)) list.push('text-sm');
+    if (!has(list, /^font-(?:thin|light|normal|medium|semibold|bold|extrabold|black)$/)) list.push('font-medium');
+    el.setAttribute('class', list.join(' '));
+  }
+  for (const el of root.querySelectorAll('[class*="max-w-"]')) {
+    const list = classes(el);
+    const parent = el.parentElement;
+    if (!parent || !has(list, /^max-w-(?!none|full|max|fit|min)/) || has(list, OWN_PLACE)) continue;
+    const around = classes(parent);
+    const row = has(around, /^(?:inline-)?flex$/) && !has(around, /^flex-col/);
+    if (row || has(around, /^(?:inline-)?grid$/) || has(around, ALIGNED)) continue;
+    const inside = [el, el.firstElementChild].filter(Boolean).flatMap(classes);
+    if (has(inside, /^(?:items-center|text-center)$/)) el.setAttribute('class', [...list, 'mx-auto'].join(' '));
+  }
+}
+
 /**
  * Markup from an analysis, reduced to what is safe to draw. A <pe-area id> becomes the comment
  * <!--pe-area:id-->, which marks a place without being an element that styles could count.
@@ -84,6 +122,7 @@ export function sanitize(html) {
   const doc = parseMarkup(html);
   cleanElement(doc.body);
   for (const svg of doc.body.querySelectorAll('svg[data-icon]')) drawIcon(svg);
+  repair(doc.body);
   for (const slot of [...doc.body.querySelectorAll('pe-area')]) {
     const id = (slot.getAttribute('id') ?? '').replace(/[^a-z0-9-]/gi, '');
     if (id) slot.replaceWith(doc.createComment(`pe-area:${id}`));
