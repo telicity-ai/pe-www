@@ -6,12 +6,14 @@
 // is sandboxed without an origin of its own; and its Content Security Policy runs two scripts
 // only (Tailwind's browser build and the small script below) and loads nothing else.
 
+import { iconOf } from './icons.js';
+
 const TAILWIND = 'https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4.3.5';
 
 // ---------- HTML ----------
 
 const DROP_WITH_CONTENT = new Set(['script', 'style', 'link', 'meta', 'base', 'title', 'iframe', 'frame', 'frameset', 'object', 'embed', 'applet', 'noscript', 'template', 'foreignobject', 'animate', 'animatemotion', 'animatetransform', 'set', 'use', 'image', 'audio', 'video', 'source', 'track', 'canvas', 'portal', 'slot', 'dialog']);
-const HTML_TAGS = new Set(('a abbr address article aside b bdi bdo blockquote br button caption cite code col colgroup data dd del details dfn div dl dt em fieldset figcaption figure footer form h1 h2 h3 h4 h5 h6 header hgroup hr i img input ins kbd label legend li main mark menu meter nav ol optgroup option output p picture pre progress q rp rt ruby s samp search section select small span strong sub summary sup table tbody td textarea tfoot th thead time tr u ul var wbr pe-area').split(' '));
+const HTML_TAGS = new Set(('a abbr address article aside b bdi bdo blockquote br button caption cite code col colgroup data dd del details dfn div dl dt em fieldset figcaption figure footer form h1 h2 h3 h4 h5 h6 header hgroup hr i img input ins kbd label legend li main mark menu meter nav ol optgroup option output p picture pre progress q rp rt ruby s samp search section select small span strong sub summary sup table tbody td textarea tfoot th thead time tr u ul var wbr pe-area pe-wait').split(' '));
 const SVG_TAGS = new Set(('svg g path circle ellipse rect line polyline polygon text tspan defs lineargradient radialgradient stop clippath mask title desc').split(' '));
 const ATTRIBUTES = new Set(('class id style title role tabindex lang dir hidden open type value placeholder checked disabled selected readonly multiple name for rows cols colspan rowspan scope width height alt min max step size maxlength low high optimum inert draggable datetime label '
   + 'viewbox d fill fill-rule fill-opacity clip-rule stroke stroke-width stroke-linecap stroke-linejoin stroke-dasharray stroke-dashoffset stroke-opacity opacity cx cy r rx ry x y x1 y1 x2 y2 points transform xmlns preserveaspectratio offset stop-color stop-opacity gradientunits gradienttransform font-size text-anchor dominant-baseline').split(' '));
@@ -29,6 +31,8 @@ function cleanElement(el) {
       child.replaceWith(...child.childNodes);
       continue;
     }
+    // Markup that was copied from JSX after all.
+    if (child.hasAttribute('classname') && !child.hasAttribute('class')) child.setAttribute('class', child.getAttribute('classname'));
     for (const attribute of [...child.attributes]) {
       const name = attribute.name.toLowerCase();
       const known = ATTRIBUTES.has(name) || name.startsWith('aria-') || (name.startsWith('data-') && !name.startsWith('data-pe'));
@@ -52,18 +56,40 @@ function cleanElement(el) {
   for (const node of [...el.childNodes]) if (node.nodeType === Node.COMMENT_NODE) node.remove();
 }
 
-/**
- * Markup from an analysis, reduced to what is safe to draw. A <pe-area id> becomes the comment
- * <!--pe-area:id-->, which marks a place without being an element that styles could count.
- */
-export function sanitize(html) {
+/** Markup from an analysis as a document, nothing taken out yet. */
+export function parseMarkup(html) {
   // A <select> may only hold options: a styled trigger written as one would lose its content
   // when parsed, so it is read as a button.
   const source = html.replace(/<select\b([^>]*)>((?:(?!<\/select)[\s\S])*)<\/select\s*>/gi, (whole, attributes, inner) => (
     /<option\b/i.test(inner) ? whole : `<button type="button"${attributes}>${inner}</button>`
   ));
-  const doc = new DOMParser().parseFromString(`<!doctype html><body>${source}`, 'text/html');
+  return new DOMParser().parseFromString(`<!doctype html><body>${source}`, 'text/html');
+}
+
+const NO_ICON = '<rect x="5" y="5" width="14" height="14" rx="4" fill="currentColor" opacity=".3"></rect>';
+
+/** An icon that the markup names instead of drawing: the drawing is put in, or a plain shape while it is not known. */
+function drawIcon(svg) {
+  const icon = iconOf(svg.getAttribute('data-icon').trim().toLowerCase());
+  svg.setAttribute('viewBox', icon ? `0 0 ${icon.width} ${icon.height}` : '0 0 24 24');
+  svg.innerHTML = icon ? icon.body : NO_ICON;
+  if (icon) cleanElement(svg);
+}
+
+/**
+ * Markup from an analysis, reduced to what is safe to draw. A <pe-area id> becomes the comment
+ * <!--pe-area:id-->, which marks a place without being an element that styles could count.
+ */
+export function sanitize(html) {
+  const doc = parseMarkup(html);
   cleanElement(doc.body);
+  for (const svg of doc.body.querySelectorAll('svg[data-icon]')) drawIcon(svg);
+  for (const wait of [...doc.body.querySelectorAll('pe-wait')]) {
+    // The place of a part that is still being written.
+    const box = doc.createElement('div');
+    box.setAttribute('data-pe-wait', '');
+    wait.replaceWith(box);
+  }
   for (const slot of [...doc.body.querySelectorAll('pe-area')]) {
     const id = (slot.getAttribute('id') ?? '').replace(/[^a-z0-9-]/gi, '');
     if (id) slot.replaceWith(doc.createComment(`pe-area:${id}`));
@@ -111,6 +137,7 @@ function bridge() {
   for (const box of store.children) boxes.set(box.getAttribute('data-pe-option'), box);
   const key = (area, option) => `${area} ${option}`;
   const placed = new Map();
+  let areas = config.areas;
 
   function marker(id) {
     const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_COMMENT);
@@ -124,12 +151,12 @@ function bridge() {
     for (const [id, was] of placed) boxes.get(key(id, was.option))?.append(...was.nodes);
     placed.clear();
     // An option may hold the place of another area, so places appear as options are put in.
-    let waiting = config.areas.map((a) => a.id);
+    let waiting = areas.map((a) => a.id);
     for (let pass = 0; pass < 6 && waiting.length; pass += 1) {
       waiting = waiting.filter((id) => {
         const at = marker(id);
         if (!at) return true;
-        const area = config.areas.find((a) => a.id === id);
+        const area = areas.find((a) => a.id === id);
         const option = area.options.includes(choices[id]) ? choices[id] : area.options[0];
         const nodes = [...(boxes.get(key(id, option))?.childNodes ?? [])];
         at.after(...nodes);
@@ -213,16 +240,42 @@ function bridge() {
   </style><div></div>`;
   const outline = layer.querySelector('div');
   const dots = new Map();
-  for (const area of config.areas) {
-    const dot = document.createElement('button');
-    dot.type = 'button';
-    dot.setAttribute('aria-label', area.label);
-    dot.addEventListener('click', (event) => {
-      event.stopPropagation();
-      say({ type: 'dot', id: area.id, keyboard: event.detail === 0 });
-    });
-    layer.append(dot);
-    dots.set(area.id, dot);
+  function syncDots() {
+    for (const [id, dot] of dots) {
+      if (areas.some((a) => a.id === id)) continue;
+      dot.remove();
+      dots.delete(id);
+    }
+    for (const area of areas) {
+      if (dots.has(area.id)) continue;
+      const dot = document.createElement('button');
+      dot.type = 'button';
+      dot.setAttribute('aria-label', area.label);
+      dot.addEventListener('click', (event) => {
+        event.stopPropagation();
+        say({ type: 'dot', id: area.id, keyboard: event.detail === 0 });
+      });
+      layer.append(dot);
+      dots.set(area.id, dot);
+    }
+  }
+  syncDots();
+
+  /** The page changed while it is shown (it is still being written): everything is put in anew. */
+  function replace(message) {
+    const y = window.scrollY;
+    placed.clear();
+    while (document.body.firstChild && document.body.firstChild !== store) document.body.firstChild.remove();
+    const range = document.createRange();
+    range.selectNodeContents(document.body);
+    store.before(range.createContextualFragment(message.page));
+    store.innerHTML = message.store;
+    boxes.clear();
+    for (const box of store.children) boxes.set(box.getAttribute('data-pe-option'), box);
+    areas = message.areas;
+    syncDots();
+    apply(message.choices);
+    window.scrollTo(0, y);
   }
 
   let view = { open: null, chosen: [] };
@@ -231,7 +284,7 @@ function bridge() {
     const width = document.documentElement.clientWidth;
     const height = document.documentElement.clientHeight;
     const rects = {};
-    for (const area of config.areas) {
+    for (const area of areas) {
       const r = rect(area.id);
       const dot = dots.get(area.id);
       if (!r) {
@@ -268,6 +321,7 @@ function bridge() {
     const message = event.data;
     if (event.source !== parent || !message || message.pe !== config.token) return;
     if (message.type === 'apply') apply(message.choices);
+    if (message.type === 'set') replace(message);
     if (message.type === 'view') view = { open: message.open, chosen: message.chosen };
     if (message.type === 'focus') dots.get(message.id)?.focus();
   });
@@ -280,12 +334,24 @@ function bridge() {
 
 const BRIDGE = `(${bridge.toString()})();`;
 
+/** What a frame shows of an analysis: the page, the options kept aside, and the areas they belong to. */
+function documentParts(analysis) {
+  return {
+    page: sanitize(analysis.page),
+    store: analysis.areas.flatMap((area) => area.options.map((option) => (
+      `<div data-pe-option="${area.id} ${option.id}">${sanitize(option.html)}</div>`
+    ))).join(''),
+    areas: analysis.areas.map((area) => ({ id: area.id, label: area.label, options: area.options.map((o) => o.id) })),
+  };
+}
+
 /**
  * The whole document of a frame. `assets` are the project's stylesheets and how to treat them;
  * `choices` says which option stands in each area; `focus` makes it a thumbnail of one area.
  */
 export function buildDocument(analysis, assets, { token, choices = {}, focus = null }) {
   const n = nonce();
+  const parts = documentParts(analysis);
   const csp = [
     "default-src 'none'",
     `script-src 'nonce-${n}' ${TAILWIND}`,
@@ -296,26 +362,23 @@ export function buildDocument(analysis, assets, { token, choices = {}, focus = n
     "form-action 'none'",
   ].join('; ');
   const sheet = inert(projectCss([...assets.css, analysis.css ?? ''], assets.tailwind));
+  // Tailwind is loaded with CORS so that the frame hears of its errors; a script from another
+  // origin loaded without it fails silently, and a stylesheet it gave up on would stay unnoticed.
   const styles = assets.tailwind
-    ? `<script nonce="${n}" src="${TAILWIND}"></script><style type="text/tailwindcss">${sheet}</style>`
+    ? `<script nonce="${n}" src="${TAILWIND}" crossorigin="anonymous"></script><style type="text/tailwindcss">${sheet}</style>`
     : `<style>${sheet}</style>`;
-  const store = analysis.areas.flatMap((area) => area.options.map((option) => (
-    `<div data-pe-option="${area.id} ${option.id}">${sanitize(option.html)}</div>`
-  ))).join('');
-  const config = {
-    token,
-    focus,
-    choices,
-    areas: analysis.areas.map((area) => ({ id: area.id, label: area.label, options: area.options.map((o) => o.id) })),
-  };
+  const config = { token, focus, choices, areas: parts.areas };
   const root = assets.dark ? ' class="dark" data-theme="dark" style="color-scheme:dark"' : '';
   return `<!doctype html><html lang="en"${root}><head><meta charset="utf-8">`
     + `<meta http-equiv="Content-Security-Policy" content="${csp}">`
     + '<meta name="viewport" content="width=device-width, initial-scale=1">'
-    + `<style>html,body{margin:0}[data-picture]{display:inline-block;background:rgba(128,128,128,.22);min-width:1em;min-height:1em}svg:not([width]):not([class]):not([style]){width:1em;height:1em}${focus ? 'html{scrollbar-width:none}*{animation:none!important;transition:none!important}' : ''}</style>`
+    // A named icon has the size of the text around it unless the project's styles give it one: in
+    // a layer of its own, declared first, so that any rule of the project wins over it.
+    + '<style>@layer pe-base{svg[data-icon]{width:1em;height:1em}}</style>'
+    + `<style>html,body{margin:0}[data-picture]{display:inline-block;background:rgba(128,128,128,.22);min-width:1em;min-height:1em}[data-pe-wait]{display:block;min-height:56px;margin:6px 0;border-radius:8px;background:rgba(128,128,128,.2);animation:pe-wait .9s ease-in-out infinite alternate}@keyframes pe-wait{to{opacity:.35}}svg:not([width]):not([class]):not([style]){width:1em;height:1em}${focus ? 'html{scrollbar-width:none}*{animation:none!important;transition:none!important}' : ''}</style>`
     + styles
-    + `</head><body>${sanitize(analysis.page)}`
-    + `<div id="pe-store" style="display:none!important">${store}</div>`
+    + `</head><body>${parts.page}`
+    + `<div id="pe-store" style="display:none!important">${parts.store}</div>`
     + `<script nonce="${n}">window.__PE__=${JSON.stringify(config).replace(/</g, '\\u003c')};${BRIDGE}</script>`
     + '</body></html>';
 }
@@ -358,6 +421,9 @@ export class Preview {
           this.post(this.pending ?? { type: 'view', open: null, chosen: [] });
         }
       } else if (message.type === 'ready') {
+        this.ready = true;
+        if (this.changed) this.post(this.changed);
+        this.changed = null;
         this.post(this.pending ?? { type: 'view', open: null, chosen: [] });
         this.handlers.ready?.();
       } else this.handlers[message.type]?.(message);
@@ -369,11 +435,28 @@ export class Preview {
     this.token = newToken();
     this.layout = null;
     this.pending = null;
+    this.ready = false;
+    this.changed = null;
+    this.drawn = JSON.stringify(documentParts(analysis));
     const frame = makeFrame(title);
     frame.srcdoc = buildDocument(analysis, assets, { token: this.token, choices });
     this.holder.replaceChildren(frame);
     this.frame = frame;
     this.fit();
+  }
+
+  /** The analysis that is shown has grown (it is still being written): the frame takes it in without loading again. */
+  update(analysis, choices) {
+    if (!this.frame || !this.loaded) return;
+    this.loaded.analysis = analysis;
+    this.loaded.choices = choices;
+    const parts = documentParts(analysis);
+    const drawn = JSON.stringify(parts);
+    if (drawn === this.drawn) return;
+    this.drawn = drawn;
+    const message = { type: 'set', ...parts, choices };
+    if (this.ready) this.post(message);
+    else this.changed = message;
   }
 
   /**

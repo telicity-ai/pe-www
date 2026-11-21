@@ -1,0 +1,564 @@
+{
+"note": "The lines of an answer of /api/draw for vercel/ai-chatbot (app/(auth)/register/page.tsx), with the time in milliseconds at which each arrived. Played back by \"npm run dev -- --mock\".",
+"events": [
+{
+"at": 3867,
+"t": "plan",
+"areas": [
+{
+"id": "form-fields",
+"options": [
+"label-top",
+"label-left"
+]
+},
+{
+"id": "submit-action",
+"options": [
+"explicit-save",
+"bottom-action-bar"
+]
+}
+],
+"file": "app/(auth)/register/page.tsx"
+},
+{
+"at": 3867,
+"t": "page",
+"text": "<"
+},
+{
+"at": 3991,
+"t": "page",
+"text": "div class=\"flex h-dvh w-screen bg-sidebar\" style"
+},
+{
+"at": 4113,
+"t": "page",
+"text": "=\"min-height:100vh\">\n<div class"
+},
+{
+"at": 4234,
+"t": "page",
+"text": "=\"flex w-full flex-col bg-background p-8 xl:w"
+},
+{
+"at": 4356,
+"t": "page",
+"text": "-[600px] xl:shrink-0 xl:"
+},
+{
+"at": 4480,
+"t": "page",
+"text": "rounded-r-2xl xl:border-r xl:border-border"
+},
+{
+"at": 4601,
+"t": "page",
+"text": "/40 md:p-16\">\n<a class"
+},
+{
+"at": 4729,
+"t": "page",
+"text": "=\"flex w-fit items-center gap-1.5 text-[1"
+},
+{
+"at": 4955,
+"t": "page",
+"text": "3px] text-muted-foreground transition-colors hover:text"
+},
+{
+"at": 5141,
+"t": "page",
+"text": "-foreground\" href=\"/\">\n"
+},
+{
+"at": 5275,
+"t": "page",
+"text": "<svg data-icon=\"lucide:arrow-left\" class=\"size-3.5"
+},
+{
+"at": 5502,
+"t": "page",
+"text": "\">"
+},
+{
+"at": 5747,
+"t": "page",
+"text": "</"
+},
+{
+"at": 5879,
+"t": "page",
+"text": "svg>"
+},
+{
+"at": 6025,
+"t": "page",
+"text": "\nBack\n</a>\n<"
+},
+{
+"at": 6150,
+"t": "page",
+"text": "div class=\"mx-auto flex w-full max-w-md flex-1 flex-col justify-center gap-10\""
+},
+{
+"at": 6271,
+"t": "page",
+"text": ">\n<div class=\"flex flex-col gap-2\""
+},
+{
+"at": 6393,
+"t": "page",
+"text": ">\n<div class=\"mb-2 flex size-9"
+},
+{
+"at": 6515,
+"t": "page",
+"text": " items-center justify-center rounded-lg bg-muted/60 text"
+},
+{
+"at": 6647,
+"t": "page",
+"text": "-muted-foreground ring-1 ring-border/50\""
+},
+{
+"at": 6795,
+"t": "page",
+"text": ">\n"
+},
+{
+"at": 6998,
+"t": "page",
+"text": "<svg data-icon=\"custom\" class=\"size-4\"></svg>\n</div>\n<h1"
+},
+{
+"at": 7119,
+"t": "page",
+"text": " class=\"text-"
+},
+{
+"at": 7291,
+"t": "page",
+"text": "2xl font-semibold tracking-tight\">Create account</h1>\n"
+},
+{
+"at": 7411,
+"t": "page",
+"text": "<p class=\"text-sm text-muted-foreground\">Get started"
+},
+{
+"at": 7551,
+"t": "page",
+"text": " for free</p>\n<pe-area id=\"form-fields\"></pe-area>\n<pe-area id=\"submit-action\"></pe-area>\n"
+},
+{
+"at": 7672,
+"t": "page",
+"text": "</div>\n</div>\n</div>\n<div class=\"hidden"
+},
+{
+"at": 7801,
+"t": "page",
+"text": " flex-1 flex-col overflow-hidden pl-12 xl"
+},
+{
+"at": 7918,
+"t": "page",
+"text": ":flex\""
+},
+{
+"at": 8040,
+"t": "page",
+"text": ">\n<div class=\"flex items-center gap-1"
+},
+{
+"at": 8165,
+"t": "page",
+"text": ".5 pt-8 text-[13px] text-m"
+},
+{
+"at": 8289,
+"t": "page",
+"text": "uted-foreground/50\">\nPowered by\n<"
+},
+{
+"at": 8413,
+"t": "page",
+"text": "svg data-icon=\"custom\" class=\"size-3.5"
+},
+{
+"at": 8535,
+"t": "page",
+"text": "\"></svg>\n<span class=\"font-medium"
+},
+{
+"at": 8658,
+"t": "page",
+"text": " text-muted-foreground\">AI Gateway</span>\n</div>\n"
+},
+{
+"at": 8846,
+"t": "page",
+"text": "<div class=\"flex-1 pt-"
+},
+{
+"at": 8975,
+"t": "page",
+"text": "4\">\n"
+},
+{
+"at": 9102,
+"t": "page",
+"text": "<div class=\"flex h-full flex-col overflow-hidden rounded-tl"
+},
+{
+"at": 9225,
+"t": "page",
+"text": "-2xl bg-background\">\n<div class=\"flex"
+},
+{
+"at": 9396,
+"t": "page",
+"text": " h-14 shrink-0 items-center gap-3 border-b border-border/2"
+},
+{
+"at": 9523,
+"t": "page",
+"text": "0 px-5\">\n<div class=\"flex size-"
+},
+{
+"at": 9546,
+"t": "area",
+"id": "submit-action",
+"label": "Where the sign-up button sits",
+"decision": "form-primary-action"
+},
+{
+"at": 9546,
+"t": "option",
+"area": "submit-action",
+"id": "keep",
+"keep": true,
+"label": "A button at the end of the form, with a sign-in link beneath it",
+"html": "<button data-slot=\"button\" data-variant=\"default\" data-size=\"default\" class=\"group/button inline-flex shrink-0 items-center justify-center rounded-lg border border-transparent bg-clip-padding text-sm font-medium whitespace-nowrap transition-all outline-none select-none active:translate-y-px disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 bg-primary text-primary-foreground hover:bg-primary/80 h-9 gap-1.5 px-3 has-data-[icon=inline-end]:pr-2.5 has-data-[icon=inline-start]:pl-2.5 relative\" type=\"submit\">Sign up<span class=\"absolute right-4 animate-spin\"><svg data-icon=\"lucide:loader\" class=\"size-4\"></svg></span><output aria-live=\"polite\" class=\"sr-only\">Submit form</output></button>\n<p class=\"text-center text-[13px] text-muted-foreground\">Have an account? <a class=\"text-foreground underline-offset-4 hover:underline\" href=\"/login\">Sign in</a></p>"
+},
+{
+"at": 9546,
+"t": "suggest",
+"area": "submit-action",
+"id": "explicit-save",
+"because": "The button submits the form and nothing is saved until the user presses it, so the button belongs at the end of the form."
+},
+{
+"at": 9645,
+"t": "page",
+"text": "5 items-center justify-center rounded bg-muted/60 ring-"
+},
+{
+"at": 9685,
+"t": "option",
+"area": "submit-action",
+"id": "bottom-action-bar",
+"pattern": "bottom-action-bar",
+"label": "A bar that stays at the bottom",
+"html": "<div class=\"fixed bottom-0 left-0 right-0 z-10 border-t bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60\">\n  <div class=\"flex items-center justify-center gap-2 px-4 py-3\">\n    <button data-slot=\"button\" data-variant=\"default\" data-size=\"default\" class=\"inline-flex shrink-0 items-center justify-center rounded-lg border border-transparent bg-primary text-primary-foreground hover:bg-primary/80 text-sm font-medium whitespace-nowrap transition-all outline-none select-none active:translate-y-px disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 h-9 gap-1.5 px-3\" type=\"submit\" disabled=\"false\">\n      Sign up\n      <span class=\"absolute right-4 animate-spin\">\n        <svg data-icon=\"lucide:loader\" class=\"size-4\"></svg>\n      </span>\n      <output aria-live=\"polite\" class=\"sr-only\">Submit form</output>\n    </button>\n    <p class=\"text-center text-[13px] text-muted-foreground\">\n      Have an account?\n      <a class=\"text-foreground underline-offset-4 hover:underline\" href=\"/login\">\n        Sign in\n      </a>\n    </p>\n  </div>\n</div>"
+},
+{
+"at": 9771,
+"t": "page",
+"text": "1 ring-border/50\">\n<svg data-icon=\""
+},
+{
+"at": 9896,
+"t": "page",
+"text": "custom\" class=\"size-2.5\"></"
+},
+{
+"at": 9935,
+"t": "area",
+"id": "form-fields",
+"label": "Where labels sit beside their fields",
+"decision": "label-placement"
+},
+{
+"at": 9935,
+"t": "option",
+"area": "form-fields",
+"id": "keep",
+"keep": true,
+"label": "Two stacked label-and-input pairs for email and password",
+"html": "<div class=\"flex flex-col gap-4\">\n  <div class=\"flex flex-col gap-2\">\n    <label class=\"flex items-center gap-2 text-sm leading-none font-medium select-none group-data-[disabled=true]:pointer-events-none group-data-[disabled=true]:opacity-50 peer-disabled:cursor-not-allowed peer-disabled:opacity-50\" data-slot=\"label\" for=\"email\">Email</label>\n    <input type=\"email\" data-slot=\"input\" class=\"h-9 w-full min-w-0 rounded-4xl border border-input bg-input/30 px-3 py-1 text-base transition-colors outline-none file:inline-flex file:h-7 file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-[3px] aria-invalid:ring-destructive/20 md:text-sm dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 h-10 rounded-lg border-border/50 bg-muted/50 text-sm transition-colors focus:border-foreground/20 focus:bg-muted\" id=\"email\" name=\"email\" placeholder=\"you@someo.ne\" required autocomplete=\"email\" autofocus>\n  </div>\n  <div class=\"flex flex-col gap-2\">\n    <label class=\"flex items-center gap-2 text-sm leading-none font-medium select-none group-data-[disabled=true]:pointer-events-none group-data-[disabled=true]:opacity-50 peer-disabled:cursor-not-allowed peer-disabled:opacity-50\" data-slot=\"label\" for=\"password\">Password</label>\n    <input type=\"password\" data-slot=\"input\" class=\"h-9 w-full min-w-0 rounded-4xl border border-input bg-input/30 px-3 py-1 text-base transition-colors outline-none file:inline-flex file:h-7 file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-[3px] aria-invalid:ring-destructive/20 md:text-sm dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 h-10 rounded-lg border-border/50 bg-muted/50 text-sm transition-colors focus:border-foreground/20 focus:bg-muted\" id=\"password\" name=\"password\" placeholder=\"••••••••\" required>\n  </div>\n</div>"
+},
+{
+"at": 9935,
+"t": "suggest",
+"area": "form-fields",
+"id": "label-top",
+"because": "The form is short and narrow, so labels above fields keep the column readable and let the inputs use the full width."
+},
+{
+"at": 10015,
+"t": "page",
+"text": "svg>\n</div>\n<span class=\"text-[13px"
+},
+{
+"at": 10207,
+"t": "page",
+"text": "] text-muted-foreground\">Chatbot</span>\n"
+},
+{
+"at": 10334,
+"t": "page",
+"text": "</div>\n<div class=\"flex flex-1 flex-col items-center justify-center gap-8 px-8\">"
+},
+{
+"at": 10455,
+"t": "page",
+"text": "\n<div class=\"text-center\">\n<h2 class"
+},
+{
+"at": 10576,
+"t": "page",
+"text": "=\"text-xl font-semibold tracking-tight\">What can"
+},
+{
+"at": 10702,
+"t": "page",
+"text": " I help with?</h2>\n<p class=\"mt-1."
+},
+{
+"at": 10781,
+"t": "option",
+"area": "form-fields",
+"id": "label-left",
+"pattern": "label-left",
+"label": "Email and password labels beside their fields",
+"html": "<div class=\"flex flex-col gap-4\">\n  <div class=\"flex flex-col gap-2\">\n    <Label class=\"font-normal text-muted-foreground\" htmlFor=\"email\">Email</Label>\n    <Input\n      autoComplete=\"email\"\n      autoFocus\n      class=\"h-10 rounded-lg border-border/50 bg-muted/50 text-sm transition-colors focus:border-foreground/20 focus:bg-muted\"\n      defaultValue=\"\"\n      id=\"email\"\n      name=\"email\"\n      placeholder=\"you@someo.ne\"\n      required\n      type=\"email\"\n    />\n  </div>\n  <div class=\"flex flex-col gap-2\">\n    <Label class=\"font-normal text-muted-foreground\" htmlFor=\"password\">Password</Label>\n    <Input\n      class=\"h-10 rounded-lg border-border/50 bg-muted/50 text-sm transition-colors focus:border-foreground/20 focus:bg-muted\"\n      id=\"password\"\n      name=\"password\"\n      placeholder=\"&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;\"\n      required\n      type=\"password\"\n    />\n  </div>\n</div>"
+},
+{
+"at": 10822,
+"t": "page",
+"text": "5 text-sm text-muted-foreground\">Ask a question,"
+},
+{
+"at": 10942,
+"t": "page",
+"text": " write code, or explore ideas.</p>\n</div>\n<div class"
+},
+{
+"at": 11068,
+"t": "page",
+"text": "=\"grid w-full max-w-md grid-cols-2 gap"
+},
+{
+"at": 11192,
+"t": "page",
+"text": "-2\">"
+},
+{
+"at": 11324,
+"t": "page",
+"text": "\n<button class=\"rounded-xl border border-border/30 bg"
+},
+{
+"at": 11502,
+"t": "page",
+"text": "-card/20 px-3 py-"
+},
+{
+"at": 11625,
+"t": "page",
+"text": "2.5 text-left text-[11px] leading-relaxed text-muted-foreground/70 transition-all duration-"
+},
+{
+"at": 11748,
+"t": "page",
+"text": "200 hover:border-border/60 hover:bg"
+},
+{
+"at": 11876,
+"t": "page",
+"text": "-card/40 hover:text-muted-foreground\" type=\"button"
+},
+{
+"at": 12002,
+"t": "page",
+"text": "\">Write a landing page</button>\n<button class=\"rounded"
+},
+{
+"at": 12126,
+"t": "page",
+"text": "-xl border border-border/30 bg-card/20 px-"
+},
+{
+"at": 12250,
+"t": "page",
+"text": "3 py-2.5 text-left text-[11px"
+},
+{
+"at": 12372,
+"t": "page",
+"text": "] leading-relaxed text-muted-foreground/70 transition"
+},
+{
+"at": 12521,
+"t": "page",
+"text": "-all duration-200 hover:border-border/6"
+},
+{
+"at": 12635,
+"t": "page",
+"text": "0 hover:bg-card/40 hover:text-muted-"
+},
+{
+"at": 12735,
+"t": "option",
+"area": "form-fields",
+"id": "label-top",
+"pattern": "label-top",
+"label": "Email and password labels sit above their fields",
+"html": "<div class=\"flex flex-col gap-4\">\n  <div class=\"flex flex-col gap-2\">\n    <label class=\"flex items-center gap-2 text-sm leading-none font-medium select-none group-data-[disabled=true]:pointer-events-none group-data-[disabled=true]:opacity-50 peer-disabled:cursor-not-allowed peer-disabled:opacity-50 font-normal text-muted-foreground\" for=\"email\">Email</label>\n    <input type=\"email\" data-slot=\"input\" class=\"h-9 w-full min-w-0 rounded-4xl border border-input bg-input/30 px-3 py-1 text-base transition-colors outline-none file:inline-flex file:h-7 file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-[3px] aria-invalid:ring-destructive/20 md:text-sm dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 h-10 rounded-lg border-border/50 bg-muted/50 text-sm transition-colors focus:border-foreground/20 focus:bg-muted\" id=\"email\" name=\"email\" placeholder=\"you@someo.ne\" required autocomplete=\"email\" autofocus>\n  </div>\n  <div class=\"flex flex-col gap-2\">\n    <label class=\"flex items-center gap-2 text-sm leading-none font-medium select-none group-data-[disabled=true]:pointer-events-none group-data-[disabled=true]:opacity-50 peer-disabled:cursor-not-allowed peer-disabled:opacity-50 font-normal text-muted-foreground\" for=\"password\">Password</label>\n    <input type=\"password\" data-slot=\"input\" class=\"h-9 w-full min-w-0 rounded-4xl border border-input bg-input/30 px-3 py-1 text-base transition-colors outline-none file:inline-flex file:h-7 file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-[3px] aria-invalid:ring-destructive/20 md:text-sm dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 h-10 rounded-lg border-border/50 bg-muted/50 text-sm transition-colors focus:border-foreground/20 focus:bg-muted\" id=\"password\" name=\"password\" placeholder=\"&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;\" required>\n  </div>\n</div>"
+},
+{
+"at": 12745,
+"t": "page",
+"text": "foreground\" type=\"button\">Explain a concept</button>\n<"
+},
+{
+"at": 12869,
+"t": "page",
+"text": "button class=\"rounded-xl border border-border/30 bg-card"
+},
+{
+"at": 12993,
+"t": "page",
+"text": "/20 px-3 py-2.5 text-left text"
+},
+{
+"at": 13113,
+"t": "page",
+"text": "-[11px] leading-relaxed text-muted-foreground/"
+},
+{
+"at": 13209,
+"t": "option",
+"area": "submit-action",
+"id": "explicit-save",
+"pattern": "explicit-save",
+"label": "Save button at the end of the form",
+"html": "<div class=\"flex flex-col gap-4\">\n  <div class=\"flex flex-col gap-2\">\n    <label class=\"font-normal text-sm leading-none font-medium select-none text-muted-foreground\" for=\"email\">Email</label>\n    <input type=\"email\" data-slot=\"input\" class=\"h-9 w-full min-w-0 rounded-4xl border border-input bg-input/30 px-3 py-1 text-base transition-colors outline-none file:inline-flex file:h-7 file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-[3px] aria-invalid:ring-destructive/20 md:text-sm dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40\" placeholder=\"you@someo.ne\" required>\n  </div>\n  <div class=\"flex flex-col gap-2\">\n    <label class=\"font-normal text-sm leading-none font-medium select-none text-muted-foreground\" for=\"password\">Password</label>\n    <input type=\"password\" data-slot=\"input\" class=\"h-9 w-full min-w-0 rounded-4xl border border-input bg-input/30 px-3 py-1 text-base transition-colors outline-none file:inline-flex file:h-7 file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-[3px] aria-invalid:ring-destructive/20 md:text-sm dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40\" placeholder=\"••••••••\" required>\n  </div>\n  <div class=\"flex flex-col gap-2\">\n    <button type=\"submit\" data-slot=\"button\" data-variant=\"default\" data-size=\"default\" class=\"inline-flex shrink-0 items-center justify-center rounded-lg border border-transparent bg-clip-padding text-sm font-medium whitespace-nowrap transition-all outline-none select-none active:translate-y-px disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 bg-primary text-primary-foreground hover:bg-primary/80 h-9 gap-1.5 px-3 has-data-[icon=inline-end]:pr-2.5 has-data-[icon=inline-start]:pl-2.5\">\n      Save\n    </button>\n    <p class=\"text-center text-[13px] text-muted-foreground\">\n      Have an account?\n      <a class=\"text-foreground underline-offset-4 hover:underline\" href=\"/login\">Sign in</a>\n    </p>\n  </div>\n</div>"
+},
+{
+"at": 13237,
+"t": "page",
+"text": "70 transition-all duration-200 hover:border-border/"
+},
+{
+"at": 13382,
+"t": "page",
+"text": "60 hover:bg-card/40 hover:text-muted-"
+},
+{
+"at": 13483,
+"t": "page",
+"text": "foreground\" type=\"button\">Summarize a document</button>\n<"
+},
+{
+"at": 13610,
+"t": "page",
+"text": "button class=\"rounded-xl border border-border/30 bg-card/"
+},
+{
+"at": 13737,
+"t": "page",
+"text": "20 px-3 py-2.5 text-left text-[1"
+},
+{
+"at": 13861,
+"t": "page",
+"text": "1px] leading-relaxed text-muted-foreground/70"
+},
+{
+"at": 13984,
+"t": "page",
+"text": " transition-all duration-200 hover:border-border/60"
+},
+{
+"at": 14108,
+"t": "page",
+"text": " hover:bg-card/40 hover:text-muted-foreground\""
+},
+{
+"at": 14232,
+"t": "page",
+"text": " type=\"button\">Debug my code</button>\n</div>\n</div>\n"
+},
+{
+"at": 14356,
+"t": "page",
+"text": "<div class=\"shrink-0 px-5 pb-5\""
+},
+{
+"at": 14477,
+"t": "page",
+"text": ">\n<button class=\"flex w-full items-center rounded-2"
+},
+{
+"at": 14599,
+"t": "page",
+"text": "xl border border-border/30 bg-card/30 px-"
+},
+{
+"at": 14722,
+"t": "page",
+"text": "4 py-3 text-left text-[13px] text-m"
+},
+{
+"at": 14929,
+"t": "page",
+"text": "uted-foreground/"
+},
+{
+"at": 15159,
+"t": "page",
+"text": "40 transition-col"
+},
+{
+"at": 15281,
+"t": "page",
+"text": "ors hover:b"
+},
+{
+"at": 15401,
+"t": "page",
+"text": "order-border/50 hover:text-muted-foreground/60"
+},
+{
+"at": 15523,
+"t": "page",
+"text": "\" type=\"button\">Ask anything...</button>\n</div>\n</div>"
+},
+{
+"at": 15712,
+"t": "page",
+"text": "\n</div>\n</div>\n</div>\n"
+},
+{
+"at": 15712,
+"t": "page-end"
+},
+{
+"at": 15886,
+"t": "screen",
+"title": "Create account",
+"summary": "A registration screen with email and password fields, a sign-up button, and a link to sign in."
+},
+{
+"at": 15886,
+"t": "done",
+"model": "solar-pro4",
+"ms": 15231
+}
+]
+}

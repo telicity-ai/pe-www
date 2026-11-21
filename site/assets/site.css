@@ -78,6 +78,8 @@ h1 .dimmer{color:#7c7c7c}
 .seg button{height:26px;padding:0 12px;border:0;border-radius:7px;background:none;color:var(--mut);font-size:12.5px;cursor:pointer}
 .seg button.on{background:#2a2a2d;color:var(--fg)}
 .prog{display:inline-flex;align-items:center;gap:9px;font-size:12.5px;white-space:nowrap;flex:none}
+#pcount.busy{display:inline-flex;align-items:center;gap:7px;color:var(--pink)}
+#pcount.busy::before{content:"";width:10px;height:10px;border-radius:50%;border:1.5px solid var(--pink);border-right-color:transparent;animation:spin .7s linear infinite}
 .pips{display:inline-flex;gap:4px}
 .pips i{width:15px;height:6px;border-radius:3px;border:1px dashed #5a5a5a;display:block}
 .pips i.f{background:var(--pink);border:1px solid var(--pink)}

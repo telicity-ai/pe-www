@@ -5,6 +5,6 @@
   "installCommand": null,
   "outputDirectory": "site",
   "functions": {
-    "api/board.js": { "maxDuration": 300 }
+    "api/draw.js": { "maxDuration": 300 }
   }
 }

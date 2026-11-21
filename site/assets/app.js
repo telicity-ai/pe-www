@@ -1,5 +1,7 @@
+import { assemble, newBoard, streamBoard, take } from './board.js';
 import { API_BASE } from './config.js';
 import { RepoError, collectFiles, parseRepo, scanRepo } from './github.js';
+import { iconsIn, loadIcons } from './icons.js';
 import { getLang, initLang, setLang, t } from './i18n.js';
 import { Preview, mountThumb } from './preview.js';
 import { buildPrompt, diffPrompt, mergePrompt } from './prompt.js';
@@ -14,9 +16,8 @@ const textarea = $('prompt');
 const ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
 const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (c) => ESCAPES[c]);
 
-const STEPS = ['tree', 'screens', 'stack', 'read', 'match', 'draw'];
+const STEPS = ['tree', 'screens', 'stack', 'read', 'draw'];
 const SCENE_MS = 2950;
-const MIN_OVERLAY_MS = 900;
 
 const state = {
   project: null,
@@ -38,6 +39,18 @@ function prepare(screen, choices = {}) {
   screen.generated = buildPrompt(screen.analysis, valid, getLang());
   screen.text = screen.generated;
   screen.last = null;
+}
+
+/** The analysis of a screen has grown while it is shown: the prompt follows, and keeps what was chosen and typed. */
+function grow(screen, analysis) {
+  const before = screen.generated;
+  screen.analysis = analysis;
+  for (const id of Object.keys(screen.choices)) {
+    if (!analysis.areas.some((a) => a.id === id && a.options.some((o) => o.id === screen.choices[id]))) delete screen.choices[id];
+  }
+  const after = buildPrompt(analysis, screen.choices, getLang());
+  screen.text = mergePrompt(screen.text, before, after);
+  screen.generated = after;
 }
 
 function choose(areaId, optionId) {
@@ -202,10 +215,14 @@ function renderToolbar() {
   $('rname').textContent = `${repo.owner}/${repo.name}`;
   $('rsub').textContent = repo.sub ? `/${repo.sub}` : '';
   $('rtag').hidden = !project.sample;
-  const areas = state.screen?.analysis.areas ?? [];
+  const areas = state.screen?.analysis?.areas ?? [];
   const chosen = areas.filter((a) => state.screen.choices[a.id]).length;
   $('pips').innerHTML = areas.map((a) => `<i class="${state.screen.choices[a.id] ? 'f' : ''}"></i>`).join('');
-  $('pcount').textContent = areas.length ? t('pg.chosen', { n: chosen, m: areas.length }) : '';
+  // While a screen is still being written, the toolbar says what is on its way.
+  const writing = state.screen?.status === 'loading';
+  $('pcount').classList.toggle('busy', writing);
+  if (writing) $('pcount').textContent = t(state.screen.analysis?.pageDone ? 'pg.options' : 'pg.drawing');
+  else $('pcount').textContent = areas.length ? t('pg.chosen', { n: chosen, m: areas.length }) : '';
 }
 
 function renderRail() {
@@ -302,13 +319,11 @@ function showScene(index) {
   nextSteps.forEach((item, i) => item.classList.toggle('on', i === index));
 }
 
-let overlaySince = 0;
 function showOverlay() {
   $('er').hidden = true;
   if (!$('ov').hidden) return;
   closePop();
   $('ov').hidden = false;
-  overlaySince = Date.now();
   showScene(0);
   clearInterval(sceneTimer);
   sceneTimer = setInterval(() => showScene((sceneIndex + 1) % scenes.length), SCENE_MS);
@@ -348,24 +363,24 @@ function showError(error) {
   $('er').hidden = false;
 }
 
-async function requestBoard(project, screen, files) {
+function boardUrl(project, screen, files) {
   const params = new URLSearchParams({ repo: `${project.repo.owner}/${project.repo.name}`, ref: project.repo.ref, path: screen.path, lang: getLang() });
   for (const path of files.related) params.append('rel', path);
   for (const path of files.styles) params.append('css', path);
   if (project.stack.length) params.set('stack', project.stack.join(', '));
   if (project.scan.treeSha) params.set('v', project.scan.treeSha.slice(0, 12));
-  let response;
-  try {
-    response = await fetch(`${API_BASE}/api/board?${params}`);
-  } catch {
-    throw new RepoError('offline');
-  }
-  let body = null;
-  try { body = await response.json(); } catch { /* not JSON: handled below */ }
-  if (!response.ok || !body?.ok) throw new RepoError(body?.code ?? (response.status === 404 ? 'offline' : 'failed'));
-  return body;
+  // An answer that failed is kept by the CDN under its address: asking again needs another one.
+  params.set('try', String(screen.tries));
+  return `${API_BASE}/api/draw?${params}`;
 }
 
+const DRAW_EVERY_MS = 180;
+
+/**
+ * Analyzes a screen and shows it while the answer is written: the page first, then each area as
+ * it becomes a choice. The answer is read to its end even when the person has moved on to
+ * another screen meanwhile; coming back to it picks it up where it is.
+ */
 async function analyzeScreen(screen, run = ++state.run) {
   if (screen.status === 'ready') {
     hideOverlay();
@@ -373,34 +388,117 @@ async function analyzeScreen(screen, run = ++state.run) {
     select(screen);
     return;
   }
+  if (screen.status === 'loading' && screen.resume) {
+    screen.resume(run);
+    return;
+  }
   const project = state.project;
-  state.retry = () => analyzeScreen(screen);
-  showOverlay();
-  setStep('read', { file: screen.path.split('/').slice(-2).join('/') });
+  const fallbackTitle = screen.title;
+  let board = null;
+  let showing = false; // the screen has taken the stage at least once
+  let timer = null;
+  const watched = () => run === state.run;
+  const wait = () => {
+    state.retry = () => analyzeScreen(screen);
+    showOverlay();
+    setStep(board?.plan.length ? 'draw' : 'read', { file: screen.path.split('/').slice(-2).join('/') });
+  };
   screen.status = 'loading';
+  screen.tries = (screen.tries ?? 0) + 1;
+  screen.resume = (again) => {
+    run = again;
+    if (showing) {
+      hideOverlay();
+      $('er').hidden = true;
+      select(screen);
+    } else wait();
+  };
+  wait();
   renderRail();
-  // Writing a whole screen takes the model about a minute; the steps only say what it is busy with.
-  const timers = [setTimeout(() => run === state.run && setStep('match'), 7000), setTimeout(() => run === state.run && setStep('draw'), 20_000)];
+
+  const current = () => ({ ...assemble(board, fallbackTitle), pageDone: board.pageDone });
+  // Shows what has arrived. The first time, the screen takes the stage; after that it grows in place.
+  const draw = () => {
+    clearTimeout(timer);
+    timer = null;
+    if (!watched() || !board) return;
+    const analysis = current();
+    if (!/<[a-z]/i.test(analysis.page)) return;
+    const asked = iconsIn(board.page + [...board.areas.values()].map((a) => (a.keep?.html ?? '') + a.options.map((o) => o.html).join('')).join(''));
+    if (asked.length) loadIcons(asked).then((found) => found && draw());
+    if (analysis.screen.title) screen.title = analysis.screen.title;
+    if (!showing) {
+      showing = true;
+      screen.analysis = analysis;
+      prepare(screen);
+      hideOverlay();
+      select(screen);
+      return;
+    }
+    grow(screen, analysis);
+    if (state.screen !== screen) return;
+    if (state.open && !analysis.areas.some((a) => a.id === state.open)) closePop();
+    preview.update(analysis, shown());
+    renderAround();
+  };
+  const soon = () => { timer ??= setTimeout(draw, DRAW_EVERY_MS); };
+
   try {
     const files = await collectFiles(project.scan, screen.path);
-    const answer = await requestBoard(project, screen, files);
-    screen.analysis = { screen: { ...answer.screen, title: answer.screen.title || screen.title }, css: answer.css, page: answer.page, areas: answer.areas };
     screen.assets = files.assets;
-    screen.title = screen.analysis.screen.title;
+    // A failure that comes at once is one the CDN kept: the next address is asked instead.
+    for (let attempt = 0; ; attempt += 1) {
+      board = newBoard(screen.path);
+      try {
+        await streamBoard(boardUrl(project, screen, files), (event) => {
+          if (event.t === 'plan' && watched() && !showing) setStep('draw');
+          if (take(board, event)) soon();
+        });
+        // An answer in which no area found its place in the page is asked for once more.
+        if (attempt === 0 && !current().areas.length) {
+          screen.tries += 1;
+          continue;
+        }
+        break;
+      } catch (error) {
+        // What arrived before the answer broke off is kept when it is enough to work with.
+        board.done = true;
+        if (showing && current().areas.length) break;
+        if (!(error.fast && attempt < 2 && !showing)) throw error;
+        screen.tries += 1;
+      }
+    }
+    clearTimeout(timer);
+    timer = null;
+    const analysis = current();
+    if (!analysis.areas.length) throw new RepoError('failed');
+    await loadIcons(iconsIn(board.page + [...board.areas.values()].map((a) => (a.keep?.html ?? '') + a.options.map((o) => o.html).join('')).join('')));
     screen.status = 'ready';
-    prepare(screen);
-    const wait = MIN_OVERLAY_MS - (Date.now() - overlaySince);
-    if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
-    if (run !== state.run) return;
-    hideOverlay();
-    select(screen);
+    screen.resume = null;
+    if (analysis.screen.title) screen.title = analysis.screen.title;
+    if (showing) grow(screen, analysis);
+    else {
+      screen.analysis = analysis;
+      prepare(screen);
+    }
+    if (!watched()) {
+      renderRail();
+      return;
+    }
+    if (!showing || state.screen !== screen) {
+      hideOverlay();
+      select(screen);
+      return;
+    }
+    if (state.open && !analysis.areas.some((a) => a.id === state.open)) closePop();
+    preview.update(analysis, shown());
+    renderAround();
   } catch (error) {
+    clearTimeout(timer);
     screen.status = 'idle';
-    if (run !== state.run) return;
+    screen.resume = null;
     renderRail();
-    showError(error);
-  } finally {
-    timers.forEach(clearTimeout);
+    if (watched()) showError(error);
   }
 }
 
@@ -464,9 +562,11 @@ $('erretry').addEventListener('click', () => state.retry?.());
 $('screens').addEventListener('click', (event) => {
   const button = event.target.closest('[data-screen]');
   const screen = button && state.project.screens.find((s) => s.id === button.dataset.screen);
-  if (!screen || screen === state.screen) return;
-  if (screen.status === 'ready') select(screen);
-  else analyzeScreen(screen);
+  if (!screen || (screen === state.screen && screen.status !== 'idle')) return;
+  if (screen.status === 'ready') {
+    state.run += 1;
+    select(screen);
+  } else analyzeScreen(screen);
 });
 
 function pointAt(option) {

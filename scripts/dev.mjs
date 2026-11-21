@@ -1,15 +1,15 @@
 // A local server for the page and the analysis function.
 //   node scripts/dev.mjs            page on http://127.0.0.1:4321, analysis needs UPSTAGE_API_KEY
-//   node scripts/dev.mjs --mock     the analysis answers with a canned storyboard, without a key
-//                                   (MOCK_FILE=answer.json uses a saved answer instead)
+//   node scripts/dev.mjs --mock     the analysis plays back a recorded answer, without a key:
+//                                   MOCK_FILE=run.json is {"events":[{"at":ms,"t":…},…]} (the lines of
+//                                   an answer of /api/draw with the time each arrived), MOCK_SPEED=4
+//                                   plays it four times as fast
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { extname, join, normalize as normalizePath } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readFileSync } from 'node:fs';
-import handler from '../api/board.js';
-import { normalize } from '../api/_lib/normalize.js';
-import { EXAMPLE } from '../api/_lib/prompt.js';
+import handler from '../api/draw.js';
 
 const root = fileURLToPath(new URL('../site/', import.meta.url));
 const mock = process.argv.includes('--mock');
@@ -24,13 +24,21 @@ function query(url) {
 
 createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
-  if (url.pathname === '/api/board') {
+  if (url.pathname === '/api/draw') {
     res.status = (code) => { res.statusCode = code; return res; };
     res.json = (body) => { res.setHeader('content-type', 'application/json'); res.end(JSON.stringify(body)); };
     if (mock) {
-      await new Promise((resolve) => setTimeout(resolve, Number(process.env.MOCK_MS) || 2500));
-      const board = normalize(process.env.MOCK_FILE ? JSON.parse(readFileSync(process.env.MOCK_FILE, 'utf8')) : EXAMPLE);
-      return res.status(200).json({ ok: true, screen: { title: board.title, summary: board.summary, file: url.searchParams.get('path') }, css: board.css, page: board.page, areas: board.areas });
+      const file = process.env.MOCK_FILE || fileURLToPath(new URL('../test/fixtures/answer.json', import.meta.url));
+      const { events } = JSON.parse(readFileSync(file, 'utf8'));
+      const speed = Number(process.env.MOCK_SPEED) || 1;
+      const started = Date.now();
+      res.writeHead(200, { 'content-type': 'application/x-ndjson; charset=utf-8', 'cache-control': 'no-store' });
+      for (const { at = 0, ...event } of events) {
+        const wait = at / speed - (Date.now() - started);
+        if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
+        res.write(`${JSON.stringify(event)}\n`);
+      }
+      return res.end();
     }
     req.query = query(url);
     return handler(req, res);
