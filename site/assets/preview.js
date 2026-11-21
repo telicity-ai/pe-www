@@ -499,6 +499,14 @@ export class Preview {
     this.frame?.focus();
     this.post({ type: 'focus', id });
   }
+
+  /** The half of the page an area lies in, 'left' or 'right'; null when it spans the middle or is not known yet. */
+  half(id) {
+    const rect = this.layout?.rects?.[id];
+    if (!rect || !this.layout.width) return null;
+    const middle = (rect.left + rect.right) / 2 / this.layout.width;
+    return middle < 0.42 ? 'left' : middle > 0.58 ? 'right' : null;
+  }
 }
 
 /**

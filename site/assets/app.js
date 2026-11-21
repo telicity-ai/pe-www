@@ -24,6 +24,7 @@ const state = {
   project: null,
   screen: null,
   open: null, // id of the area whose options are showing
+  side: 'left', // the panel over which they show
   preview: null, // { area, option } while an option is pointed at
   run: 0, // increases with every analysis; an answer for an older run is dropped
   retry: null,
@@ -98,9 +99,10 @@ function dropThumbs() {
 }
 
 /**
- * The options of the open area stand in the panel beside the page, in place of the list of
- * screens. They have a place of their own that never moves: over the page they would follow the
- * part they change, and slip away from under the pointer as an option is tried.
+ * The options of the open area stand in a window of their own over one of the panels beside the
+ * page: the one on the side the area is on. The window is placed once, when the area is opened,
+ * and stays there. Over the page it would follow the part it changes, and slip away from under
+ * the pointer as an option is tried.
  */
 function renderPop() {
   const screen = state.screen;
@@ -108,13 +110,14 @@ function renderPop() {
   dropThumbs();
   rail.classList.toggle('choosing', Boolean(area));
   if (!area) {
+    pop.className = 'pop';
     pop.innerHTML = '';
     return;
   }
   // Only pictures: what an option is called and why one is suggested are read by pointing at it
   // (and by a screen reader).
   pop.setAttribute('aria-label', area.label);
-  pop.innerHTML = `<button type="button" class="pop-b" data-close><span aria-hidden="true">‹</span>${esc(t('pop.back'))}</button><div class="pop-h">${esc(area.label)}</div><div class="pop-o">${area.options.map((option) => {
+  pop.innerHTML = `<div class="pop-h"><span>${esc(area.label)}</span><button type="button" class="pop-x" data-close aria-label="${esc(t('pop.close'))}" title="${esc(t('pop.close'))}">×</button></div><div class="pop-o">${area.options.map((option) => {
     const selected = screen.choices[area.id] === option.id;
     const reason = option.suggested ? `${t('pop.suggested')}${option.because ? `: ${option.because}` : ''}` : '';
     const name = reason ? `${option.label}. ${reason}` : option.label;
@@ -122,7 +125,8 @@ function renderPop() {
       option.suggested ? `<i class="star" title="${esc(reason)}">★</i>` : ''
     }<div class="th">${option.keep ? `<span class="now">${esc(t('pop.now'))}</span>` : ''}</div></button>`;
   }).join('')}</div>`;
-  rail.scrollTop = 0;
+  pop.className = `pop show${state.side === 'right' ? ' right' : ''}`;
+  pop.scrollTop = 0;
   // Each picture is the page itself with that option in place, at the width the page has now.
   const width = preview.width || 1024;
   for (const option of area.options) {
@@ -141,6 +145,8 @@ function markSelection() {
 }
 
 function openArea(id, fromKeyboard = false) {
+  // The side is chosen where the area is when it is opened, and kept while it is open.
+  if (id && id !== state.open) state.side = preview.half(id) ?? 'left';
   state.open = id;
   state.preview = null;
   syncStage();
