@@ -564,7 +564,9 @@ export function buildDocument(analysis, assets, { token, choices = {}, focus = n
     // A named icon has the size of the text around it unless the project's styles give it one: in
     // a layer of its own, declared first, so that any rule of the project wins over it.
     + '<style>@layer pe-base{svg[data-icon]{width:1em;height:1em}}</style>'
-    + `<style>html,body{margin:0}[data-picture]{display:inline-block;background:rgba(128,128,128,.22);min-width:1em;min-height:1em}svg:not([width]):not([class]):not([style]){width:1em;height:1em}${focus ? 'html{scrollbar-width:none}*{animation:none!important;transition:none!important}' : ''}</style>`
+    // An app that scrolls inside a pane of its own locks the page (body{overflow:hidden}); drawn
+    // without the pane's fixed height, the page itself has to scroll.
+    + `<style>html,body{margin:0}html{overflow:auto!important}body{overflow:visible!important}[data-picture]{display:inline-block;background:rgba(128,128,128,.22);min-width:1em;min-height:1em}svg:not([width]):not([class]):not([style]){width:1em;height:1em}${focus ? 'html{scrollbar-width:none}*{animation:none!important;transition:none!important}' : ''}</style>`
     + styles
     + `</head><body>${parts.page}`
     + `<div id="pe-store" style="display:none!important">${parts.store}</div>`
