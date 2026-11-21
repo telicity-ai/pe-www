@@ -349,14 +349,21 @@ function renderDiff() {
   const box = $('df');
   const head = (label, counts = '') => `<div class="dfh${previewing ? ' pv' : ''}">${esc(label)}${counts}</div>`;
   if (!change || (!change.added.length && !change.removed.length)) {
-    box.innerHTML = head(t(previewing ? 'diff.preview' : 'diff.changes')) + `<div class="dl m">${esc(t(previewing ? 'diff.same' : 'diff.none'))}</div>`;
+    paint(box, head(t(previewing ? 'diff.preview' : 'diff.changes')) + `<div class="dl m">${esc(t(previewing ? 'diff.same' : 'diff.none'))}</div>`);
     return;
   }
   const rows = [...change.removed.map((line) => ['r', line]), ...change.added.map((line) => ['a', line])];
   const visible = rows.slice(0, 4);
-  box.innerHTML = head(t(previewing ? 'diff.preview' : 'diff.last'), `<b>+${change.added.length}</b><s>−${change.removed.length}</s>`)
+  paint(box, head(t(previewing ? 'diff.preview' : 'diff.last'), `<b>+${change.added.length}</b><s>−${change.removed.length}</s>`)
     + visible.map(([kind, line]) => `<div class="dl ${kind}"><span>${esc(line)}</span></div>`).join('')
-    + (rows.length > visible.length ? `<div class="dl m">${esc(t('diff.more', { n: rows.length - visible.length }))}</div>` : '');
+    + (rows.length > visible.length ? `<div class="dl m">${esc(t('diff.more', { n: rows.length - visible.length }))}</div>` : ''));
+}
+
+// Lines come in with an animation: drawn again unchanged, as every step of a load does, they would blink.
+function paint(box, html) {
+  if (box.drawn === html) return;
+  box.drawn = html;
+  box.innerHTML = html;
 }
 
 function renderPrompt() {

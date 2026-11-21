@@ -516,6 +516,17 @@ function bridge() {
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape') say({ type: 'escape' });
   });
+  // A pane that scrolls in the product is often drawn without what bounds it, inside a shell that
+  // clips (h-screen overflow-hidden): what lies below the fold would be out of reach. A large
+  // box that hides content below it scrolls instead.
+  function unclip() {
+    for (const el of document.body.querySelectorAll('*')) {
+      if (el.clientHeight < 120 || el.scrollHeight <= el.clientHeight + 8 || el.closest('#pe-store')) continue;
+      const style = getComputedStyle(el);
+      if (style.overflowY === 'hidden' || style.overflowY === 'clip') el.style.setProperty('overflow-y', 'auto', 'important');
+    }
+  }
+  setInterval(unclip, 400);
   draw();
   say({ type: 'ready' });
 }
