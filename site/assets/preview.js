@@ -499,16 +499,6 @@ export class Preview {
     this.frame?.focus();
     this.post({ type: 'focus', id });
   }
-
-  /** Where an area and its dot are, in the coordinates of this page. */
-  place(id) {
-    const rects = this.layout?.rects?.[id];
-    if (!rects || !this.frame) return null;
-    const at = this.frame.getBoundingClientRect();
-    const k = this.scale;
-    const shift = (r) => ({ left: r.left * k + at.left, top: r.top * k + at.top, right: r.right * k + at.left, bottom: r.bottom * k + at.top });
-    return { area: shift(rects), dot: shift(rects.dot), port: at };
-  }
 }
 
 /**

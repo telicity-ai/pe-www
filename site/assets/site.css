@@ -101,15 +101,15 @@ h1 .dimmer{color:#7c7c7c}
 .stage.phone .frame{width:min(390px,100%)}
 
 /* dots and options */
-.pop{position:absolute;z-index:10;display:none;padding:10px;max-width:calc(100% - 16px);background:#1b1b1d;border:1px solid rgba(255,255,255,.2);border-radius:14px;box-shadow:0 20px 56px rgba(0,0,0,.72)}
-.pop.show{display:block}
-.pop-h{margin:0 2px 8px;font-size:12.5px;font-weight:500;color:var(--fg)}
-.pop--col{max-width:none}
-.pop--col .pop-o{flex-direction:column;flex-wrap:nowrap}
-.pop--col .opt{width:176px}
-.pop--col .pop-h{max-width:172px}
-.pop-o{display:flex;flex-wrap:wrap;align-items:flex-start;gap:8px}
-.opt{position:relative;display:block;width:216px;border:0;background:none;padding:0;text-align:left;cursor:pointer;color:var(--mut);font:inherit}
+.pop{display:none}
+.rail.choosing>:not(.pop){display:none}
+.rail.choosing .pop{display:block}
+.pop-b{display:inline-flex;align-items:center;gap:7px;margin:-4px 0 12px;padding:4px 8px 4px 6px;border:0;border-radius:7px;background:none;color:var(--dim);font:500 10.5px var(--mono);letter-spacing:.08em;text-transform:uppercase;cursor:pointer}
+.pop-b:hover{color:var(--fg);background:rgba(255,255,255,.05)}
+.pop-b span{font-size:14px;line-height:1}
+.pop-h{margin:0 6px 12px;font-size:13px;font-weight:500;line-height:1.35;color:var(--fg)}
+.pop-o{display:flex;flex-direction:column;gap:10px;padding:0 6px 4px}
+.opt{position:relative;display:block;width:100%;border:0;background:none;padding:0;text-align:left;cursor:pointer;color:var(--mut);font:inherit}
 .th{position:relative;height:96px;border-radius:9px;background:#0d0d0e;border:1px solid var(--line2);overflow:hidden;transition:height .15s}
 .opt:hover .th,.opt:focus-visible .th{border-color:rgba(255,255,255,.5)}
 .opt:focus-visible{outline:0}
@@ -385,9 +385,11 @@ h1 .dimmer{color:#7c7c7c}
   .scr b{float:none;order:2;margin:0}
   .scr b.spin{margin:0}
   .stage{padding:12px}
-  .pop{padding:8px}
-  .opt{width:calc((100vw - 96px)/2)}
-  .pop--col .pop-h{max-width:140px}
+  .rail.choosing{display:block;padding:10px 10px 8px}
+  .pop-b{margin:0 8px 8px 0;vertical-align:middle}
+  .pop-h{display:inline-block;margin:0 0 8px;vertical-align:middle}
+  .pop-o{flex-direction:row;align-items:flex-start;overflow-x:auto;padding:6px 6px 4px;scrollbar-width:thin}
+  .opt{flex:0 0 156px;width:156px}
   .block{padding:0 16px}
   .block h2{margin-top:64px}
   .stats{padding:16px 18px}
