@@ -196,6 +196,7 @@ export async function scanRepo(input, onStep = () => {}) {
 const TRY_EXT = ['', '.tsx', '.jsx', '.ts', '.js', '.vue', '.svelte', '.astro', '.css', '.scss', '.module.css', '.module.scss', '/index.tsx', '/index.jsx', '/index.ts', '/index.js', '/index.vue'];
 const UI = /\.(tsx|jsx|vue|svelte|astro)$/i;
 const SHEET = /\.css$/i;
+const CONTAINER = /(layout|container|shell|page|column|wrapper|scaffold|inset|frame)[^/]*\.(tsx|jsx|vue|svelte|astro)$/i;
 const GLOBAL_SHEET = /(^|\/)(index|globals?|app|main|styles?|tailwind|theme|tokens|variables|base|reset)\.css$/i;
 const ENTRIES = ['src/main.tsx', 'src/main.ts', 'src/main.jsx', 'src/main.js', 'src/index.tsx', 'src/index.jsx', 'src/index.js', 'app/layout.tsx', 'app/layout.jsx', 'src/app/layout.tsx', 'src/app/layout.jsx', 'pages/_app.tsx', 'pages/_app.jsx', 'pages/_app.js', 'src/pages/_app.tsx', 'app/root.tsx', 'src/root.tsx', 'src/routes/+layout.svelte', 'src/App.vue', 'app/app.vue', 'app.vue', 'src/layouts/Layout.astro'];
 
@@ -367,12 +368,21 @@ export async function collectFiles(scan, path) {
   sources.forEach((source, i) => {
     if (source) for (const hit of importsOf(opened[i], source, pathSet, scan.paths)) if (UI.test(hit)) second.add(hit);
   });
-  const rank = (p) => (/(^|\/)ui\//.test(p) ? 0 : /layout|shell|page/i.test(p.split('/').pop()) ? 1 : 2);
+  const rank = (p) => (/(^|\/)ui\//.test(p) ? 0 : CONTAINER.test(p.split('/').pop()) ? 1 : 2);
   const deeper = [...second].sort((a, b) => rank(a) - rank(b) || size(a) - size(b));
+  // What centers a screen and sets its width is often a small container component a level further
+  // down (a page container, a column): without it the model guesses, and the page leans to one side.
+  const holders = [...second].filter((p) => CONTAINER.test(p.split('/').pop()) && size(p) < 120_000).slice(0, 6);
+  const holderSources = await Promise.all(holders.map(read));
+  const containers = new Set([...first, ...second].filter((p) => CONTAINER.test(p.split('/').pop())));
+  holderSources.forEach((source, i) => {
+    if (source) for (const hit of importsOf(holders[i], source, pathSet, scan.paths)) if (UI.test(hit) && CONTAINER.test(hit.split('/').pop())) containers.add(hit);
+  });
+  const small = [...containers].filter((p) => size(p) < 20_000).sort((a, b) => size(a) - size(b));
 
   const related = [];
   let budget = 260_000;
-  for (const candidate of [...layouts, ...components, ...deeper]) {
+  for (const candidate of [...layouts, ...small, ...components, ...deeper]) {
     if (candidate === path || related.includes(candidate) || related.length >= 15) continue;
     const cost = Math.min(size(candidate), 100_000);
     if (cost > budget) continue;

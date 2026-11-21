@@ -102,6 +102,7 @@ function repair(root) {
     if (!has(list, /^font-(?:thin|light|normal|medium|semibold|bold|extrabold|black)$/)) list.push('font-medium');
     el.setAttribute('class', list.join(' '));
   }
+  const slots = root.querySelectorAll('pe-area').length;
   for (const el of root.querySelectorAll('[class*="max-w-"]')) {
     const list = classes(el);
     const parent = el.parentElement;
@@ -110,7 +111,9 @@ function repair(root) {
     const row = has(around, /^(?:inline-)?flex$/) && !has(around, /^flex-col/);
     if (row || has(around, /^(?:inline-)?grid$/) || has(around, ALIGNED)) continue;
     const inside = [el, el.firstElementChild].filter(Boolean).flatMap(classes);
-    if (has(inside, /^(?:items-center|text-center)$/)) el.setAttribute('class', [...list, 'mx-auto'].join(' '));
+    // A narrow column that holds the whole screen is the page's container: those are centered.
+    const holdsAll = slots > 0 && el.querySelectorAll('pe-area').length === slots;
+    if (holdsAll || has(inside, /^(?:items-center|text-center)$/)) el.setAttribute('class', [...list, 'mx-auto'].join(' '));
   }
 }
 
@@ -219,15 +222,130 @@ function bridge() {
     return box;
   }
 
+  // ----- a mockup that answers: menus open and close, an item picked in one becomes its value,
+  // a pressed button or a tab takes the place of its neighbours -----
+  const POPUP = '[role="listbox"], [role="menu"], [data-pe-popup]';
+  const ITEM = '[role="option"], [role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"]';
+  const TRIGGER = '[aria-haspopup], [aria-expanded], [role="combobox"]';
+  const ON = ['aria-selected', 'aria-checked', 'aria-pressed', 'aria-current', 'data-selected', 'data-state', 'data-active'];
+  const classesOf = (el) => (el.getAttribute('class') ?? '').split(/\s+/).filter(Boolean);
+  const shown = (el) => getComputedStyle(el).display !== 'none' && el.getClientRects().length > 0;
+  const setShown = (el, on) => {
+    if (on) {
+      el.classList.remove('hidden', 'invisible', 'opacity-0');
+      el.removeAttribute('hidden');
+      el.style.display = shown(el) ? '' : 'block';
+    } else el.style.display = 'none';
+  };
+  const isOn = (el) => ON.some((name) => /^(?:true|on|active|checked|open|page|step|location)$/.test(el.getAttribute(name) ?? '') || (name === 'data-selected' && el.getAttribute(name) === ''));
+  // The look of being chosen moves with the choice: the classes one has and the other has not trade places.
+  function choose(item, among) {
+    const was = among.find((el) => el !== item && isOn(el));
+    if (was) {
+      const a = classesOf(was);
+      const b = classesOf(item);
+      const onlyWas = a.filter((c) => !b.includes(c));
+      const onlyItem = b.filter((c) => !a.includes(c));
+      was.setAttribute('class', [...a.filter((c) => !onlyWas.includes(c)), ...onlyItem].join(' '));
+      item.setAttribute('class', [...b.filter((c) => !onlyItem.includes(c)), ...onlyWas].join(' '));
+    }
+    for (const el of among) {
+      for (const name of ON) {
+        if (!el.hasAttribute(name)) continue;
+        const value = el.getAttribute(name);
+        const yes = el === item;
+        if (name === 'data-state') {
+          if (/^(?:active|inactive)$/.test(value)) el.setAttribute(name, yes ? 'active' : 'inactive');
+          else if (/^(?:checked|unchecked)$/.test(value)) el.setAttribute(name, yes ? 'checked' : 'unchecked');
+          else if (/^(?:on|off)$/.test(value)) el.setAttribute(name, yes ? 'on' : 'off');
+        } else if (name === 'data-selected') {
+          if (yes) el.setAttribute(name, value === '' ? '' : 'true');
+          else el.removeAttribute(name);
+        } else if (name === 'aria-current') {
+          if (yes) el.setAttribute(name, value === 'false' ? 'true' : value);
+          else el.removeAttribute(name);
+        } else el.setAttribute(name, String(yes));
+      }
+      if (el === item && !ON.some((name) => el.hasAttribute(name))) el.setAttribute('aria-selected', 'true');
+    }
+    return was;
+  }
+  function popupOf(trigger) {
+    const id = trigger.getAttribute('aria-controls');
+    if (id && document.getElementById(id)) return document.getElementById(id);
+    if (trigger.matches(POPUP)) return null;
+    let at = trigger;
+    for (let up = 0; up < 3 && at && at !== document.body; up += 1, at = at.parentElement) {
+      for (let next = at.nextElementSibling; next; next = next.nextElementSibling) {
+        const hit = next.matches(POPUP) ? next : next.querySelector(POPUP);
+        if (hit) return hit;
+      }
+    }
+    return null;
+  }
+  const triggerOf = (popup) => [...document.querySelectorAll(TRIGGER)].find((t) => popupOf(t) === popup) ?? null;
+  const textNodes = (el) => {
+    const found = [];
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) if (node.data.trim()) found.push(node);
+    return found;
+  };
+  function interact(target) {
+    if (!(target instanceof Element) || store.contains(target)) return;
+    const item = target.closest(ITEM) ?? target.closest(`${POPUP} li, ${POPUP} button`);
+    const popup = item?.closest(POPUP);
+    if (item && popup) {
+      const among = [...popup.querySelectorAll(ITEM)];
+      const was = choose(item, among.length ? among : [...popup.querySelectorAll('li, button')]);
+      const trigger = triggerOf(popup);
+      // The trigger shows the value: the words of the item that was chosen become those of this one.
+      if (trigger) {
+        const before = (was?.textContent ?? '').trim();
+        const label = textNodes(trigger).find((node) => before && node.data.trim() === before);
+        if (label) label.data = label.data.replace(before, item.textContent.trim());
+        trigger.setAttribute('aria-expanded', 'false');
+      }
+      setShown(popup, false);
+      return;
+    }
+    const trigger = target.closest(TRIGGER);
+    const menu = trigger && popupOf(trigger);
+    if (menu) {
+      const open = !shown(menu);
+      setShown(menu, open);
+      trigger.setAttribute('aria-expanded', String(open));
+      return;
+    }
+    // A click elsewhere closes what is open.
+    for (const open of document.querySelectorAll(POPUP)) {
+      if (store.contains(open) || open.contains(target) || !shown(open)) continue;
+      const owner = triggerOf(open);
+      if (!owner) continue;
+      setShown(open, false);
+      owner.setAttribute('aria-expanded', 'false');
+    }
+    const control = target.closest('[aria-pressed], [role="tab"], [role="radio"], [role="switch"], [aria-selected], [data-state], [data-selected]');
+    if (!control || control.matches('input, select, textarea') || !control.parentElement) return;
+    if (control.getAttribute('role') === 'switch' || (control.hasAttribute('aria-pressed') && ![...control.parentElement.children].some((el) => el !== control && el.hasAttribute('aria-pressed')))) {
+      const on = !isOn(control);
+      for (const name of ['aria-checked', 'aria-pressed']) if (control.hasAttribute(name)) control.setAttribute(name, String(on));
+      if (/^(?:checked|unchecked|on|off)$/.test(control.getAttribute('data-state') ?? '')) control.setAttribute('data-state', on ? (/check/.test(control.getAttribute('data-state')) ? 'checked' : 'on') : (/check/.test(control.getAttribute('data-state')) ? 'unchecked' : 'off'));
+      return;
+    }
+    const siblings = [...control.parentElement.children].filter((el) => ON.some((name) => el.hasAttribute(name)));
+    if (siblings.length > 1) choose(control, siblings);
+  }
+
   // Tailwind gives up on a whole stylesheet when one rule in it names a class it does not know.
   window.addEventListener('unhandledrejection', (event) => {
     const reason = String(event.reason?.message ?? event.reason ?? '');
     if (/utility|tailwind|@apply|theme/i.test(reason)) say({ type: 'styles', reason });
   });
 
-  // Links and forms of a mockup lead nowhere.
+  // Links and forms of a mockup lead nowhere, but its controls answer (see `interact`).
   document.addEventListener('click', (event) => {
-    if (event.target.closest?.('a, button, input[type=submit], summary')) event.preventDefault();
+    if (event.target.closest?.('a, button, input[type=submit]')) event.preventDefault();
+    if (!config.focus) interact(event.target);
     say({ type: 'away' });
   }, true);
   document.addEventListener('submit', (event) => event.preventDefault(), true);
