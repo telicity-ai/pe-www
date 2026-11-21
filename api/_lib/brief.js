@@ -98,7 +98,7 @@ ${TODAY_HTML}
 @@END`;
 
 /** The call that writes the screen: which areas there are, then the whole page with each area marked in it. */
-/** `again` says why the screen is asked for a second time: 'source' or 'short'. */
+/** `again` says why the screen is asked for again: 'source', 'short', 'loop' or 'unplaced'. */
 export function screenTask(again = null, repeated = null) {
   return `TASK: THE SCREEN AND ITS AREAS
 
@@ -134,7 +134,7 @@ EXAMPLE (shortened)
 ${SCREEN_EXAMPLE}
 
 ${CHECK}
-- Every area of your plan has its element in the page, beginning as its @@AREA line says, and its @@WHERE line after the page.${again === 'short' ? '\n\nYour last answer stopped in the middle of the page. Write the page to its end, then the @@WHERE lines, @@TITLE, @@SUMMARY and @@END.' : again === 'source' ? '\n\nYour last answer had the project\'s source code in the page (className, component tags such as <Button>, expressions in braces). Write HTML.' : ''}${again === 'loop' ? '\n\nYour last answer wrote the same line over and over' + (repeated ? `, this one:\n${repeated.slice(0, 300)}\nWrite it once at most, and` : '. Write each element of the page once, and') + ' go on to the screen\'s content.' : ''}`;
+- Every area of your plan has its element in the page, beginning as its @@AREA line says, and its @@WHERE line after the page.${again === 'short' ? '\n\nYour last answer stopped in the middle of the page. Write the page to its end, then the @@WHERE lines, @@TITLE, @@SUMMARY and @@END.' : again === 'source' ? '\n\nYour last answer had the project\'s source code in the page (className, component tags such as <Button>, expressions in braces). Write HTML.' : again === 'unplaced' ? '\n\nIn your last answer no area could be found in the page: the page ran out before them, or they did not begin as their @@AREA lines said. Pick areas in the upper part of the screen, write their opening tags in HTML (class, not className; no expressions in braces) and begin their elements in the page with exactly those characters.' : ''}${again === 'loop' ? '\n\nYour last answer wrote the same line over and over' + (repeated ? `, this one:\n${repeated.slice(0, 300)}\nWrite it once at most, and` : '. Write each element of the page once, and') + ' go on to the screen\'s content.' : ''}`;
 }
 
 /** The calls that follow: one area's element, drawn with one pattern of the catalog. */

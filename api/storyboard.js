@@ -467,13 +467,23 @@ export default async function handler(req, res) {
       res.write(`${JSON.stringify(event)}\n`);
     };
     let summary;
-    try {
-      summary = await draw({ query, files, styles, send, signal: controller.signal });
-    } catch (error) {
-      if (!(error instanceof Again)) throw error;
-      // What was sent of the first attempt is taken back.
-      send({ t: 'reset' });
-      summary = await draw({ query, files, styles, send, signal: controller.signal, again: error.why, repeated: error.line });
+    const began = Date.now();
+    // An answer that went wrong is asked for again while there is time for a whole one (about 50 s).
+    for (let attempt = 0, again = false, repeated = null; ; attempt += 1) {
+      try {
+        summary = await draw({ query, files, styles, send, signal: controller.signal, again, repeated });
+        break;
+      } catch (error) {
+        const retry = error instanceof Again || (error instanceof Failure && error.code === 'model_error');
+        if (!retry || attempt >= 2 || controller.signal.aborted || Date.now() - began > DEADLINE_MS - 60_000) throw error;
+        console.log('again', JSON.stringify({ path: query.path, attempt, why: error instanceof Again ? error.why : error.message }));
+        // What was sent of the attempt is taken back.
+        send({ t: 'reset' });
+        if (error instanceof Again) {
+          again = error.why;
+          repeated = error.line;
+        } else again = error.message.includes('no area') ? 'unplaced' : 'short';
+      }
     }
     console.log('storyboard', JSON.stringify({ path: query.path, ...summary }));
     send({ t: 'done', model: MODEL, read: [...files, ...styles].map((f) => f.path), ...summary });
