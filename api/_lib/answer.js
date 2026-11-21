@@ -211,16 +211,17 @@ export class ElementScan {
  * and classes.
  */
 export function findStart(page, anchor, exact = false) {
-  const copy = anchor.trim();
+  // A beginning that was cut short ("…", or in the middle of a long opening tag) still says where.
+  const copy = anchor.trim().replace(/(\.{3}|…)+$/, '').trim();
+  if (!/^<[A-Za-z]/.test(copy) || copy.length < 8) return -1;
   const tag = OPENING_TAG.exec(copy)?.[0];
-  if (!tag) return -1;
   // White space is not compared: between tags and between words it differs from copy to copy.
   const loose = (text) => new RegExp(text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s*').replace(/>/g, '>\\s*').replace(/</g, '\\s*<').replace(/^\\s\*/, ''));
-  for (const wanted of exact ? [copy] : [copy, tag]) {
+  for (const wanted of exact || !tag ? [copy] : [copy, tag]) {
     const at = page.search(loose(wanted));
     if (at >= 0) return at;
   }
-  if (exact) return -1;
+  if (exact || !tag) return -1;
   const named = /^<([A-Za-z][\w-]*)\b[^>]*?\bclass\s*=\s*"([^"]*)"/.exec(tag);
   if (!named) return -1;
   const classes = named[2].trim().split(/\s+/).map((name) => name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('\\s+');

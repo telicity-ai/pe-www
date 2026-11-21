@@ -19,6 +19,10 @@ function areaOf(board, id) {
 /** Takes one line of the answer in. Returns true when what can be drawn may have changed. */
 export function take(board, event) {
   switch (event.t) {
+    case 'reset':
+      // The page is written anew: what has arrived so far no longer counts.
+      Object.assign(board, newBoard(board.file));
+      return true;
     case 'plan':
       board.plan = event.areas;
       for (const planned of event.areas) {

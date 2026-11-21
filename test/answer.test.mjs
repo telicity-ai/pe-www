@@ -81,6 +81,8 @@ test('an element is found by how it begins', () => {
   // A copy that is off after its opening tag is still found by that tag, unless it must be exact.
   assert.equal(at('<div class="flex  flex-col gap-2" ><h2>Other'), '<div class="flex flex-col gap-2"><h1>T</h1></div>');
   assert.equal(findStart(PAGE, '<div class="flex flex-col gap-2"><h2>Other', true), -1);
+  // A beginning that was cut short in the middle of its opening tag.
+  assert.equal(at('<section class="card [&>svg]:si...'), PAGE.slice(PAGE.indexOf('<section'), PAGE.indexOf('</form>')));
   assert.equal(at('<nav class="none">'), null);
   assert.equal(at('not a tag'), null);
 });

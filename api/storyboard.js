@@ -14,6 +14,7 @@
 //   {"t":"screen","title":…,"summary":…}
 //   {"t":"option","area":…,"id":…,"pattern":…,"label":…,"html":…,"suggested":…,"because":…}
 //   {"t":"miss","area":…,"id":…}   that option will not come ("keep": the area has no place in the page)
+//   {"t":"reset"}                 forget everything so far: the page is written anew
 //   {"t":"done","ms":…,…}   or   {"t":"error","code":…,"message":…}
 // One call to the model writes the whole page, so that the page is of one piece. As soon as the
 // element of an area is written, that element goes to calls of their own, one for each option:
@@ -44,6 +45,17 @@ const DEADLINE_MS = 150_000;
 
 const PER_MINUTE = 6;
 const hits = new Map();
+
+/**
+ * The page is asked for once more: it turned out to be the project's source code instead of
+ * HTML ("source"), or the model stopped in the middle of it ("short").
+ */
+class Again extends Error {
+  constructor(why) {
+    super(why);
+    this.why = why;
+  }
+}
 
 class Failure extends Error {
   constructor(status, code, message) {
@@ -152,7 +164,16 @@ const tokens = (usage) => (usage ? { prompt: usage.prompt_tokens, cached: usage.
  * Writes the storyboard, calling `send(event)` for each part as it is known.
  * Throws a Failure when nothing can be shown; what was sent before stays sent.
  */
-async function draw({ query, files, styles, send, signal }) {
+async function draw({ query, files, styles, send: pass, signal: outer, again = false }) {
+  // Everything of this attempt ends with it: when the page is asked for anew, its calls are
+  // broken off and what they still say is not passed on.
+  const own = new AbortController();
+  const signal = own.signal;
+  const stop = () => own.abort();
+  outer.addEventListener('abort', stop);
+  let live = true;
+  const send = (event) => (live ? pass(event) : null);
+  let source = false;
   const started = Date.now();
   const at = () => Date.now() - started;
   const system = systemPrompt(query.lang);
@@ -258,6 +279,11 @@ async function draw({ query, files, styles, send, signal }) {
     if (page.length >= LIMITS.page) return;
     page += text;
     waiting += text;
+    if (!again && !source && SOURCE_CODE.test(page.slice(-(text.length + 60)))) {
+      source = true;
+      own.abort();
+      return;
+    }
     captures = captures.filter((capture) => {
       const end = capture.scan.push(text);
       if (end < 0) return true;
@@ -322,8 +348,27 @@ async function draw({ query, files, styles, send, signal }) {
     },
   );
 
-  const result = await ask({ messages: messages(screenTask()), maxTokens: PAGE_TOKENS, signal, onText: (piece) => reader.push(piece) });
+  let result;
+  try {
+    result = await ask({ messages: messages(screenTask(again)), maxTokens: PAGE_TOKENS, signal, onText: (piece) => reader.push(piece) });
+  } catch (error) {
+    live = false;
+    outer.removeEventListener('abort', stop);
+    if (!source) throw error;
+    await Promise.all(jobs);
+    throw new Again('source');
+  }
+  outer.removeEventListener('abort', stop);
   reader.end();
+  if (!again && phase === 'page' && result.finish !== 'length') {
+    // The model ended its answer inside the page (it does, now and then, after a few lines
+    // that repeat): what there is of it is no screen.
+    live = false;
+    own.abort();
+    await Promise.all(jobs);
+    throw new Again('short');
+  }
+
   calls.unshift({ kind: 'page', ms: result.ms, first: result.firstMs, finish: result.finish, chars: result.chars, ...tokens(result.usage) });
   if (phase === 'plan' || phase === 'css' || !page) throw new Failure(502, 'model_error', 'The answer has no page');
   endPage();
@@ -353,7 +398,11 @@ async function draw({ query, files, styles, send, signal }) {
       }
     }
   }
-  for (const area of areas) if (!area.today) send({ t: 'miss', area: area.id, id: 'keep' });
+  for (const area of areas) {
+    if (area.today) continue;
+    send({ t: 'miss', area: area.id, id: 'keep' });
+    console.log('unplaced', JSON.stringify({ path: query.path, area: area.id, anchor: (area.anchor ?? '').slice(0, 240), page: page.length }));
+  }
   await Promise.all(jobs);
   if (!areas.some((area) => area.today && area.drawn)) throw new Failure(502, 'model_error', 'The answer has no area that can be shown');
   return { ms: at(), marks, calls };
@@ -401,7 +450,15 @@ export default async function handler(req, res) {
       }
       res.write(`${JSON.stringify(event)}\n`);
     };
-    const summary = await draw({ query, files, styles, send, signal: controller.signal });
+    let summary;
+    try {
+      summary = await draw({ query, files, styles, send, signal: controller.signal });
+    } catch (error) {
+      if (!(error instanceof Again)) throw error;
+      // What was sent of the first attempt is taken back.
+      send({ t: 'reset' });
+      summary = await draw({ query, files, styles, send, signal: controller.signal, again: error.why });
+    }
     console.log('storyboard', JSON.stringify({ path: query.path, ...summary }));
     send({ t: 'done', model: MODEL, read: [...files, ...styles].map((f) => f.path), ...summary });
     return res.end();

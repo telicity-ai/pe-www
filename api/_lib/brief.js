@@ -98,7 +98,8 @@ ${TODAY_HTML}
 @@END`;
 
 /** The call that writes the screen: which areas there are, then the whole page with each area marked in it. */
-export function screenTask() {
+/** `again` says why the screen is asked for a second time: 'source' or 'short'. */
+export function screenTask(again = null) {
   return `TASK: THE SCREEN AND ITS AREAS
 
 Answer in exactly this form. ${FORM}
@@ -116,23 +117,23 @@ the HTML of the screen, the areas included
 THE AREAS
 - Exactly 3 areas (2 when the screen is small). Pick them where the catalog has a real alternative for what the code does: the layout of a part, the kind of control, where an action sits, how a destructive action is guarded, how a list or a table is shown, navigation.
 - An area is ONE element that a person sees in the default state of the screen, of at most about 30 lines of HTML: a group of rows, a toolbar, a card, a form section; not the whole page or half of it, not the frame around the screen (a sidebar, a top bar), not a single button or field, not a state that only shows after an error. The areas are separate parts of the screen itself, in its upper part: none lies inside another, none is in the frame around the screen.
-- @@AREA has five parts: a short kebab-case id; the id of the catalog decision it answers, or - when none does; the ids of exactly 2 catalog patterns that would be real alternatives to what the code does there and that look different from each other, the one you would suggest for this screen first; a label of at most 7 plain words that says what is being decided ("Where Save sits", "How the plans are compared"); and the beginning of the area's element as you are about to write it in the page: its opening tag in HTML and the tag that follows it, about 100 characters. The page is searched for exactly these characters to find the element, so write them in the page as you write them here, and pick an element that begins like no other.
+- @@AREA has five parts: a short kebab-case id; the id of the catalog decision it answers, or - when none does; the ids of exactly 2 catalog patterns that would be real alternatives to what the code does there and that look different from each other, the one you would suggest for this screen first; a label of at most 7 plain words that says what is being decided ("Where Save sits", "How the plans are compared"); and the beginning of the area's element as you are about to write it in the page: its opening tag in HTML, whole however long it is, and the tag that follows it. The page is searched for exactly these characters to find the element, so write them in the page as you write them here, and pick an element that begins like no other.
 
 THE PAGE
 - The whole HTML of the screen as it is today, the areas included. It starts with ONE root element that carries the classes the application puts on <html>, <body> or its root (background, text color, font), with style="min-height:100vh".
 - The screen in its ordinary state: when the code returns one thing while loading, another after an error and another with data, write the one with data, as a signed-in person finds it on an ordinary day.
-- When a layout or parent route file is among the files, the screen sits inside what that file renders (a sidebar, a top bar): reproduce that frame around the screen, briefly. Its containers with their classes, its title, at most 3 entries of its navigation: no more than about 15 lines for all of it. Do not invent a frame, and do not leave one empty.
+- When a layout or parent route file is among the files, the screen sits inside what that file renders (a sidebar, a top bar): reproduce that frame around the screen in a few lines: its outer containers with their classes, and its title or logo. Leave its navigation and its other content out, and go on to the screen itself, which is what this is about. Do not invent a frame.
 - Each area's element stands in the page, complete, and begins with the characters that its @@AREA line gives.
 - An area is the ONE element that holds it whole: the list, not a row of it.
 - A person waits while you write, and the page is cut off after about 100 lines: the screen itself must be whole by then. Leave out what cannot be seen and what lies below the first screenful and a half; of a long list of similar things (navigation entries, table rows, cards, steps, fields of a long form) write 3.
-- After the page, one @@WHERE line for each area: its id and the beginning of its element (its opening tag and the tag that follows it, about 100 characters), copied character for character from the page you wrote.
+- After the page, one @@WHERE line for each area: its id and the beginning of its element (its opening tag, whole however long it is, and the tag that follows it), copied character for character from the page you wrote.
 - @@CSS is for what the mockup needs and the project's stylesheets do not give: design tokens that live in a tailwind.config file instead of CSS (write them for Tailwind 4 as "@theme inline { --color-NAME: VALUE; }"), rules from the <style> blocks of Vue, Svelte or Astro files that the mockup uses, and styles that the project makes in JavaScript (styled-components, CSS-in-JS, a component library without stylesheets). Never restyle what the project's classes already style. Leave it empty otherwise.
 
 EXAMPLE (shortened)
 ${SCREEN_EXAMPLE}
 
 ${CHECK}
-- Every area of your plan has its element in the page, beginning as its @@AREA line says, and its @@WHERE line after the page.`;
+- Every area of your plan has its element in the page, beginning as its @@AREA line says, and its @@WHERE line after the page.${again === 'short' ? '\n\nYour last answer stopped in the middle of the page. Write the page to its end, then the @@WHERE lines, @@TITLE, @@SUMMARY and @@END.' : again ? '\n\nYour last answer had the project\'s source code in the page (className, component tags such as <Button>, expressions in braces). Write HTML.' : ''}`;
 }
 
 /** The calls that follow: one area's element, drawn with one pattern of the catalog. */
@@ -180,7 +181,7 @@ Answer in exactly this form. ${FORM}
 @@AREA id | decision | pattern, pattern | label | the beginning of its element
 @@END
 
-- A short kebab-case id; the id of the catalog decision it answers, or - when none does; the ids of exactly 2 catalog patterns that look different from each other, the one you would suggest first; a label of at most 7 plain words that says what is being decided; and the beginning of the element (its opening tag and the tag that follows it, about 100 characters), copied character for character from the mockup above.
+- A short kebab-case id; the id of the catalog decision it answers, or - when none does; the ids of exactly 2 catalog patterns that look different from each other, the one you would suggest first; a label of at most 7 plain words that says what is being decided; and the beginning of the element (its opening tag, whole however long it is, and the tag that follows it), copied character for character from the mockup above.
 
 EXAMPLE
 @@AREA channels | on-off-setting | checkbox, segmented-control | How the notification choices are shown | <div class="divide-y rounded-lg border"><label class="flex items-center justify-between gap-4 p-4">
