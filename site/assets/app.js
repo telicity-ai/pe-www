@@ -170,6 +170,7 @@ function renderPop() {
   if (!area) {
     pop.className = 'pop';
     pop.innerHTML = '';
+    showLayer(false);
     return;
   }
   // Only pictures: what an option is called and why one is suggested are read by pointing at it
@@ -186,11 +187,12 @@ function renderPop() {
   }).join('')}</div>`;
   pop.className = 'pop show';
   pop.style.visibility = 'hidden';
+  showLayer(true);
   // Each picture is the page itself with that option in place, at the width the page has now.
-  const width = preview.width || 1024;
+  const size = { width: preview.width || 1024, height: preview.height };
   for (const option of area.options) {
     const box = pop.querySelector(`[data-option="${CSS.escape(option.id)}"] .th`);
-    thumbs.push(mountThumb(box, screen.analysis, screen.assets, area.id, { ...screen.choices, [area.id]: option.id }, width, (height) => {
+    thumbs.push(mountThumb(box, screen.analysis, screen.assets, area.id, { ...screen.choices, [area.id]: option.id }, size, (height) => {
       tallest = Math.max(tallest, height);
       placePop();
     }));
@@ -206,58 +208,87 @@ function markSelection() {
   }
 }
 
+/** The options stand in the browser's top layer, above the page, its panels and the preview alike. */
+function showLayer(on) {
+  if (!pop.showPopover) return;
+  const open = pop.matches(':popover-open');
+  if (on && !open) pop.showPopover();
+  else if (!on && open) pop.hidePopover();
+}
+
+const OPTION_WIDTHS = [216, 176, 144, 120]; // the pictures are made smaller before they cover the part
+let placing = false;
+
 /**
- * Puts the options by the dot of the part they change. In this order: beside a narrow page (a
- * phone leaves room in the stage itself), above that part, below it when it is low enough for
- * that to be near the dot, and otherwise right under the dot, over the part.
+ * Puts the options by the dot of the part they change, never over that part: above it or
+ * below it in a row, or beside it in a column, whichever is nearest to the dot, at the
+ * largest size there is room for.
  *
  * The part is taken as it was when it was opened (the frame holds that still) and as tall as
  * its tallest option makes it: the options stay where they are while one of them is tried.
  */
 function placePop() {
-  if (!state.open) return;
+  if (!state.open || placing) return;
   const at = preview.place(state.open);
-  if (!at) {
-    pop.style.visibility = 'hidden';
-    return;
-  }
-  const outer = stage.getBoundingClientRect();
+  const hide = () => { pop.style.visibility = 'hidden'; };
+  if (!at) return hide();
+  const W = document.documentElement.clientWidth;
+  const H = document.documentElement.clientHeight;
   const { area: box, dot, port } = at;
-  const top = Math.max(box.top, port.top);
-  const bottom = Math.min(Math.max(box.bottom, box.top + tallest * preview.scale), port.bottom);
-  if (bottom <= top) {
-    pop.style.visibility = 'hidden';
-    return;
-  }
-  pop.style.visibility = '';
+  // What must stay in sight: the part, as far as it is shown, and its dot.
+  const keep = {
+    left: Math.max(0, Math.min(Math.max(box.left, port.left), dot.left)),
+    right: Math.min(W, Math.max(Math.min(box.right, port.right), dot.right)),
+    top: Math.max(0, Math.min(Math.max(box.top, port.top), dot.top)),
+    bottom: Math.min(H, Math.max(Math.min(Math.max(box.bottom, box.top + tallest * preview.scale), port.bottom), dot.bottom)),
+  };
+  if (keep.bottom <= keep.top || keep.right <= keep.left) return hide();
+
   const GAP = 10;
-  const EDGE = 6;
-  const NEAR = 150; // how far below the dot the options may begin and still be by it
+  const EDGE = 8;
   const clamp = (value, min, max) => Math.max(min, Math.min(value, max));
-
-  const set = (left, y) => {
-    pop.style.left = `${left}px`;
-    pop.style.top = `${y}px`;
+  placing = true;
+  const measure = (column, width) => {
+    pop.classList.toggle('pop--col', column);
+    pop.style.setProperty('--ow', `${width}px`);
+    for (const thumb of thumbs) thumb.refit?.();
+    return { width: pop.offsetWidth, height: pop.offsetHeight };
   };
-  const beside = (room, leftOf) => {
-    pop.classList.add('pop--col');
-    const width = pop.offsetWidth;
-    const height = pop.offsetHeight;
-    if (width > room - 2 * EDGE || height > outer.height - 2 * EDGE) return false;
-    set(leftOf ? port.left - outer.left - EDGE - width : port.right - outer.left + EDGE, clamp(dot.top - outer.top - 10, EDGE, outer.height - height - EDGE));
-    return true;
-  };
-  if (beside(outer.right - port.right, false) || beside(port.left - outer.left, true)) return;
+  const cx = (dot.left + dot.right) / 2;
+  const cy = (dot.top + dot.bottom) / 2;
+  const distance = (left, top, w, h) => Math.hypot(Math.max(left - cx, 0, cx - left - w), Math.max(top - cy, 0, cy - top - h));
+  const rowLeft = (w) => clamp(dot.right - w + 8, EDGE, Math.max(EDGE, W - w - EDGE));
+  const colTop = (h) => clamp(dot.top - 10, EDGE, Math.max(EDGE, H - h - EDGE));
 
-  pop.classList.remove('pop--col');
-  const width = pop.offsetWidth;
-  const height = pop.offsetHeight;
-  // The options end where the dot does, on its side of the part.
-  const left = clamp(dot.right - outer.left - width + 8, EDGE, Math.max(EDGE, outer.width - width - EDGE));
-  const lowest = Math.max(EDGE, outer.height - height - EDGE);
-  if (height <= top - outer.top - GAP - EDGE) return set(left, top - outer.top - GAP - height);
-  if (bottom + GAP - dot.bottom <= NEAR && height <= outer.bottom - bottom - GAP - EDGE) return set(left, bottom - outer.top + GAP);
-  set(left, clamp(dot.bottom - outer.top + GAP, EDGE, lowest));
+  let best = null;
+  let roomiest = null;
+  for (const size of OPTION_WIDTHS) {
+    const found = [];
+    const row = measure(false, size);
+    const up = { column: false, size, w: row.width, h: row.height, left: rowLeft(row.width), top: keep.top - GAP - row.height, room: keep.top - GAP - EDGE - row.height };
+    const down = { column: false, size, w: row.width, h: row.height, left: up.left, top: keep.bottom + GAP, room: H - EDGE - keep.bottom - GAP - row.height };
+    const fitsWide = row.width <= W - 2 * EDGE;
+    if (fitsWide && up.room >= 0) found.push(up);
+    if (fitsWide && down.room >= 0) found.push(down);
+    const col = measure(true, Math.min(size, 176));
+    if (col.height <= H - 2 * EDGE) {
+      const top = colTop(col.height);
+      if (W - EDGE - keep.right - GAP >= col.width) found.push({ column: true, size: Math.min(size, 176), w: col.width, h: col.height, left: keep.right + GAP, top });
+      if (keep.left - GAP - EDGE >= col.width) found.push({ column: true, size: Math.min(size, 176), w: col.width, h: col.height, left: keep.left - GAP - col.width, top });
+    }
+    if (found.length) {
+      best = found.reduce((a, b) => (distance(b.left, b.top, b.w, b.h) < distance(a.left, a.top, a.w, a.h) ? b : a));
+      break;
+    }
+    for (const option of [up, down]) if (!roomiest || option.room > roomiest.room) roomiest = option;
+  }
+  // No room anywhere, even with the smallest pictures: the side with the most of it, kept on screen.
+  if (!best) best = { ...roomiest, top: clamp(roomiest.top, EDGE, Math.max(EDGE, H - roomiest.h - EDGE)) };
+  measure(best.column, best.size);
+  placing = false;
+  pop.style.left = `${Math.round(best.left)}px`;
+  pop.style.top = `${Math.round(best.top)}px`;
+  pop.style.visibility = '';
 }
 
 function openArea(id, fromKeyboard = false) {
@@ -744,6 +775,8 @@ document.addEventListener('keydown', (event) => {
   preview.focusDot(id);
 });
 window.addEventListener('resize', placePop);
+// The options stand still on the screen: they follow the part when anything scrolls.
+document.addEventListener('scroll', placePop, { capture: true, passive: true });
 
 function setDevice(device) {
   for (const button of $('seg').children) button.classList.toggle('on', button.dataset.w === device);

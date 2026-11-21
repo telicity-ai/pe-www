@@ -235,19 +235,25 @@ function bridge() {
   apply(config.choices);
 
   if (config.focus) {
-    // A thumbnail: report where the one area is, until the styles have settled.
-    placed.get(config.focus)?.nodes.find((n) => n.nodeType === 1)?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    // A thumbnail: report where the one area is, scrolled into sight, until the styles have
+    // settled. Timers, not frames: a frame that is not shown yet gets few of them.
+    const first = () => placed.get(config.focus)?.nodes.find((n) => n.nodeType === 1);
+    const started = Date.now();
+    let changed = started;
     let last = '';
-    let frames = 0;
     const watch = () => {
-      const r = rect(config.focus);
+      let r = rect(config.focus);
+      if (r && (r.top < 0 || r.top > innerHeight - 40)) {
+        first()?.scrollIntoView({ block: 'start', inline: 'nearest' });
+        r = rect(config.focus);
+      }
       const now = r ? [r.left, r.top, r.right, r.bottom].map(Math.round).join() : '';
       if (now && now !== last) {
         last = now;
+        changed = Date.now();
         say({ type: 'thumb', rect: r });
       }
-      frames += 1;
-      if (frames < 240) requestAnimationFrame(watch);
+      if (Date.now() - started < 20000 && Date.now() - changed < 5000) setTimeout(watch, 60);
     };
     watch();
     return;
@@ -554,6 +560,11 @@ export class Preview {
     this.post({ type: 'focus', id });
   }
 
+  /** How tall the page in the frame is, in its own pixels. */
+  get height() {
+    return this.frame ? Math.round(this.frame.offsetHeight) : 900;
+  }
+
   /** Where an area and its dot are, in the coordinates of this page. */
   place(id) {
     const rects = this.layout?.rects?.[id];
@@ -566,17 +577,19 @@ export class Preview {
 }
 
 /**
- * One option, drawn small: the whole page with that option in place, moved and scaled so that
- * the area fills the box. `onFit(height)` is called when the box has changed its height, with
+ * One option, drawn small: the whole page with that option in place, as large as the preview's
+ * page (`width` × `height`, so that it is laid out the same), moved and scaled so that the area
+ * fills the box. `onFit(height)` is called when the box has changed its height, with
  * the height the area has with that option, in the page's own pixels. Returns a
- * function that removes it.
+ * function that removes it; its `refit()` fits the picture again at once, after the box has
+ * changed its width.
  */
-export function mountThumb(box, analysis, assets, areaId, choices, width, onFit) {
+export function mountThumb(box, analysis, assets, areaId, choices, { width, height }, onFit) {
   const token = newToken();
   const frame = makeFrame('');
   frame.setAttribute('tabindex', '-1');
   frame.setAttribute('aria-hidden', 'true');
-  frame.style.cssText = `position:absolute;left:0;top:0;border:0;width:${width}px;height:900px;transform-origin:0 0;pointer-events:none;visibility:hidden`;
+  frame.style.cssText = `position:absolute;left:0;top:0;border:0;width:${width}px;height:${height}px;transform-origin:0 0;pointer-events:none;visibility:hidden`;
   frame.srcdoc = buildDocument(analysis, assets, { token, choices, focus: areaId });
   let lastRect = null;
   const listen = (event) => {
@@ -595,8 +608,6 @@ export function mountThumb(box, analysis, assets, areaId, choices, width, onFit)
     const scale = Math.min(box.clientWidth / w, 1);
     const tall = Math.max(44, Math.min(h * scale, 150, box.clientWidth * 0.7));
     box.style.height = `${Math.round(tall)}px`;
-    const needed = Math.ceil(Math.max(900, r.top + tall / scale + 20));
-    if (needed > frame.offsetHeight && needed < 9000) frame.style.height = `${needed}px`;
     const x = (box.clientWidth - w * scale) / 2 - r.left * scale;
     const y = (h * scale < tall ? (tall - h * scale) / 2 : 0) - r.top * scale;
     frame.style.transform = `translate(${x}px,${y}px) scale(${scale})`;
@@ -613,9 +624,16 @@ export function mountThumb(box, analysis, assets, areaId, choices, width, onFit)
     fit(lastRect);
   });
   watcher.observe(box);
-  return () => {
+  const remove = () => {
     watcher.disconnect();
     window.removeEventListener('message', listen);
     frame.remove();
   };
+  // Fits the picture to the box as wide as it is now, at once, so that the box can be measured.
+  remove.refit = () => {
+    if (!lastRect || box.clientWidth === boxWidth) return;
+    boxWidth = box.clientWidth;
+    fit(lastRect);
+  };
+  return remove;
 }
