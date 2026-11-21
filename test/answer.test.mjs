@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { ElementScan, Reader, SOURCE_CODE, Variant, findElement, findStart, planChoice } from '../api/_lib/answer.js';
+import { ElementScan, Reader, SOURCE_CODE, Variant, findElement, findStart, planChoice, repeatedLine } from '../api/_lib/answer.js';
 import { DECISIONS, PATTERNS } from '../api/_lib/catalog.js';
 import { screenTask, systemPrompt, variantTask } from '../api/_lib/brief.js';
 import { newBoard, take } from '../site/assets/board.js';
@@ -161,4 +161,12 @@ test('the page puts the lines of an answer together', () => {
   assert.equal(area.label, 'Where Save sits');
   assert.deepEqual(area.options, [{ id: 'sticky-save-bar', label: 'A bar', pattern: 'sticky-save-bar', html: '<div class="bar">Save</div>', suggested: true, because: 'Long list.' }]);
   assert.deepEqual([...area.missing], ['sticky-header']);
+});
+
+test('a page that repeats one line is noticed, closing tags are not', () => {
+  const wrapper = '<div class="flex min-h-0 min-w-0 flex-1 flex-col">';
+  assert.equal(repeatedLine(`<main>\n${`${wrapper}\n`.repeat(3)}`), wrapper);
+  assert.equal(repeatedLine(`<main>\n${`${wrapper}\n`.repeat(2)}${wrapper.slice(0, 9)}`), null);
+  assert.equal(repeatedLine(`<main>\n${`${wrapper}\n`.repeat(2)}<p>Hi</p>\n`), null);
+  assert.equal(repeatedLine(`<main>\n${'</div>\n'.repeat(6)}`), null);
 });

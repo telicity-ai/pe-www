@@ -16,7 +16,7 @@ export class SolarError extends Error {
  * Resolves with { finish, usage, ms, firstMs, chars } when the answer has ended.
  * Throws a SolarError when the model cannot be asked; `signal` ends the call from outside.
  */
-export async function ask({ messages, maxTokens, signal, onText }) {
+export async function ask({ messages, maxTokens, signal, onText, temperature = 0.15 }) {
   const started = Date.now();
   let response;
   try {
@@ -24,7 +24,7 @@ export async function ask({ messages, maxTokens, signal, onText }) {
       method: 'POST',
       signal,
       headers: { 'content-type': 'application/json', authorization: `Bearer ${process.env.UPSTAGE_API_KEY}` },
-      body: JSON.stringify({ model: MODEL, temperature: 0.15, max_tokens: maxTokens, messages, stream: true, stream_options: { include_usage: true } }),
+      body: JSON.stringify({ model: MODEL, temperature, max_tokens: maxTokens, messages, stream: true, stream_options: { include_usage: true } }),
     });
   } catch (error) {
     throw new SolarError(504, 'model_timeout', error?.name === 'AbortError' ? 'The model took too long' : 'The model could not be reached');

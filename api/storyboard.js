@@ -19,7 +19,7 @@
 // One call to the model writes the whole page, so that the page is of one piece. As soon as the
 // element of an area is written, that element goes to calls of their own, one for each option:
 // a person waits for the page and a little longer, not for everything in a row.
-import { ElementScan, LIMITS, Reader, SOURCE_CODE, Variant, clean, findElement, findStart, markup, planChoice, slug } from './_lib/answer.js';
+import { ElementScan, LIMITS, Reader, SOURCE_CODE, Variant, clean, findElement, findStart, markup, repeatedLine, planChoice, slug } from './_lib/answer.js';
 import { areasTask, filesPrompt, screenTask, systemPrompt, variantTask } from './_lib/brief.js';
 import { MODEL, SolarError, ask } from './_lib/solar.js';
 
@@ -48,12 +48,14 @@ const hits = new Map();
 
 /**
  * The page is asked for once more: it turned out to be the project's source code instead of
- * HTML ("source"), or the model stopped in the middle of it ("short").
+ * HTML ("source"), the model stopped in the middle of it ("short"), or it wrote one line over and
+ * over ("loop").
  */
 class Again extends Error {
-  constructor(why) {
+  constructor(why, line = null) {
     super(why);
     this.why = why;
+    this.line = line; // the line that was repeated
   }
 }
 
@@ -164,7 +166,7 @@ const tokens = (usage) => (usage ? { prompt: usage.prompt_tokens, cached: usage.
  * Writes the storyboard, calling `send(event)` for each part as it is known.
  * Throws a Failure when nothing can be shown; what was sent before stays sent.
  */
-async function draw({ query, files, styles, send: pass, signal: outer, again = false }) {
+async function draw({ query, files, styles, send: pass, signal: outer, again = false, repeated = null }) {
   // Everything of this attempt ends with it: when the page is asked for anew, its calls are
   // broken off and what they still say is not passed on.
   const own = new AbortController();
@@ -174,6 +176,7 @@ async function draw({ query, files, styles, send: pass, signal: outer, again = f
   let live = true;
   const send = (event) => (live ? pass(event) : null);
   let source = false;
+  let looped = null;
   const started = Date.now();
   const at = () => Date.now() - started;
   const system = systemPrompt(query.lang);
@@ -284,6 +287,10 @@ async function draw({ query, files, styles, send: pass, signal: outer, again = f
       own.abort();
       return;
     }
+    if (text.includes('\n') && (looped = repeatedLine(page))) {
+      own.abort();
+      return;
+    }
     captures = captures.filter((capture) => {
       const end = capture.scan.push(text);
       if (end < 0) return true;
@@ -350,13 +357,15 @@ async function draw({ query, files, styles, send: pass, signal: outer, again = f
 
   let result;
   try {
-    result = await ask({ messages: messages(screenTask(again)), maxTokens: PAGE_TOKENS, signal, onText: (piece) => reader.push(piece) });
+    // A model caught in a loop gets out of it more easily with a little more chance.
+    result = await ask({ messages: messages(screenTask(again, repeated)), maxTokens: PAGE_TOKENS, signal, onText: (piece) => reader.push(piece), ...(again === 'loop' ? { temperature: 0.6 } : {}) });
   } catch (error) {
     live = false;
     outer.removeEventListener('abort', stop);
-    if (!source) throw error;
+    if (!source && !looped) throw error;
     await Promise.all(jobs);
-    throw new Again('source');
+    if (again) throw new Failure(502, 'model_error', 'The answer repeated itself');
+    throw new Again(source ? 'source' : 'loop', looped);
   }
   outer.removeEventListener('abort', stop);
   reader.end();
@@ -366,7 +375,8 @@ async function draw({ query, files, styles, send: pass, signal: outer, again = f
     live = false;
     own.abort();
     await Promise.all(jobs);
-    throw new Again('short');
+    const line = repeatedLine(page.replace(/\s*$/, '\n'), 2);
+    throw line ? new Again('loop', line) : new Again('short');
   }
 
   calls.unshift({ kind: 'page', ms: result.ms, first: result.firstMs, finish: result.finish, chars: result.chars, ...tokens(result.usage) });
@@ -457,7 +467,7 @@ export default async function handler(req, res) {
       if (!(error instanceof Again)) throw error;
       // What was sent of the first attempt is taken back.
       send({ t: 'reset' });
-      summary = await draw({ query, files, styles, send, signal: controller.signal, again: error.why });
+      summary = await draw({ query, files, styles, send, signal: controller.signal, again: error.why, repeated: error.line });
     }
     console.log('storyboard', JSON.stringify({ path: query.path, ...summary }));
     send({ t: 'done', model: MODEL, read: [...files, ...styles].map((f) => f.path), ...summary });

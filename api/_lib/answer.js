@@ -270,3 +270,14 @@ export class Variant {
     return { t: 'option', area: this.area.id, id, pattern, label: this.label ?? pattern, ...(suggested ? { suggested: true, ...(this.because ? { because: this.because } : {}) } : {}), html };
   }
 }
+
+/**
+ * The line that the page ends by repeating `times` times in a row, or null. A model that writes
+ * one line again and again does not get out of that by itself.
+ */
+export function repeatedLine(page, times = 3) {
+  const lines = page.slice(-4000).split('\n').map((line) => line.trim()).filter(Boolean);
+  if (!/\n\s*$/.test(page)) lines.pop(); // the last line is still being written
+  const last = lines.slice(-times);
+  return last.length === times && last[0].length >= 20 && last.every((line) => line === last[0]) ? last[0] : null;
+}
