@@ -212,7 +212,11 @@ export class ElementScan {
  */
 export function findStart(page, anchor, exact = false) {
   // A beginning that was cut short ("…", or in the middle of a long opening tag) still says where.
-  const copy = anchor.trim().replace(/(\.{3}|…)+$/, '').trim();
+  // One copied from the source (JSX) says it as the page would: class, for, and no expressions.
+  const copy = anchor.trim().replace(/(\.{3}|…)+$/, '').trim()
+    .replace(/\s+[\w:.-]+=\{(?:[^{}]|\{[^{}]*\})*\}/g, '')
+    .replace(/\bclassName=/g, 'class=')
+    .replace(/\bhtmlFor=/g, 'for=');
   if (!/^<[A-Za-z]/.test(copy) || copy.length < 8) return -1;
   const tag = OPENING_TAG.exec(copy)?.[0];
   // White space is not compared: between tags and between words it differs from copy to copy.

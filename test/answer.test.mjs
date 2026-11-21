@@ -177,3 +177,10 @@ test('in a page that was cut off, an element still open runs to its end', () => 
   assert.deepEqual(findElement(page, '<div class="list">', true), { from: 6, to: page.length });
   assert.deepEqual(findElement(page, '<div class="row">', true), { from: 24, to: 50 });
 });
+
+test('a beginning copied from the source (JSX) is found in the page', () => {
+  const page = '<main><div inert="false" class="flex shrink-0 gap-2">A</div><div data-provider-detail class="min-w-0">B</div></main>';
+  const at = (anchor) => { const found = findElement(page, anchor); return found && page.slice(found.from, found.to); };
+  assert.equal(at('<div data-provider-detail className="min-w-0"><ScrollArea className="h-full">'), '<div data-provider-detail class="min-w-0">B</div>');
+  assert.equal(at('<div inert={!canWrite} aria-disabled={!canWrite || undefined} className="flex shrink-0 gap-2">'), '<div inert="false" class="flex shrink-0 gap-2">A</div>');
+});
