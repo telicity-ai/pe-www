@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { buildPrompt, diffPrompt, mergePrompt } from '../site/assets/prompt.js';
+import { buildProjectPrompt, buildPrompt, diffPrompt, mergePrompt } from '../site/assets/prompt.js';
 import { parseRepo } from '../site/assets/github.js';
 
 const analysis = {
@@ -49,4 +49,19 @@ test('repository addresses', () => {
   assert.deepEqual(parseRepo('github.com/a/b/tree/main/apps/web'), { owner: 'a', name: 'b', ref: 'main', sub: 'apps/web' });
   assert.equal(parseRepo('just-a-word'), null);
   assert.equal(parseRepo('a/b c'), null);
+});
+
+test('picks on several screens make one prompt', () => {
+  const other = { screen: { title: 'Shifts', file: 'src/Shifts.tsx' }, areas: [{ id: 'list', label: 'How the shifts are listed', options: [{ id: 'keep', keep: true, label: 'A table' }, { id: 'cards', label: 'A card for each shift', pattern: 'card-grid' }] }] };
+  assert.equal(buildProjectPrompt([], 'en'), '');
+  assert.equal(buildProjectPrompt([{ analysis, choices: { save: 'bar' } }], 'en'), buildPrompt(analysis, { save: 'bar' }, 'en'));
+  const text = buildProjectPrompt([{ analysis, choices: { save: 'bar' } }, { analysis: other, choices: { list: 'cards' } }], 'en');
+  assert.match(text, /^Use the picky-eater skill on these screens of this project, one after another\./);
+  assert.match(text, /\nSettings screen \(src\/Settings\.tsx\):\nI tried it on the web and lean toward:\n- Where Save sits: a bar that stays \(sticky-save-bar\)\n/);
+  assert.match(text, /\nShifts screen \(src\/Shifts\.tsx\):\nI tried it on the web and lean toward:\n- How the shifts are listed: a card for each shift \(card-grid\)\n/);
+  assert.match(text, /mark my leanings as suggested, and wait for my approval before you change code\.$/);
+  assert.match(buildProjectPrompt([{ analysis, choices: {} }, { analysis: other, choices: { list: 'keep' } }], 'ko'), /^picky-eater 스킬로 이 프로젝트의 아래 화면들을 차례로 다듬어 줘\.\n\nSettings 화면 \(src\/Settings\.tsx\):/);
+  // A pick on another screen shows as lines added, like any pick.
+  const change = diffPrompt(buildProjectPrompt([{ analysis, choices: { save: 'bar' } }], 'en'), text);
+  assert.deepEqual(change.added, ['How the shifts are listed: a card for each shift (card-grid)']);
 });

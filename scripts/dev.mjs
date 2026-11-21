@@ -2,14 +2,14 @@
 //   node scripts/dev.mjs            page on http://127.0.0.1:4321, analysis needs UPSTAGE_API_KEY
 //   node scripts/dev.mjs --mock     the analysis plays back a recorded answer, without a key:
 //                                   MOCK_FILE=run.json is {"events":[{"at":ms,"t":…},…]} (the lines of
-//                                   an answer of /api/draw with the time each arrived), MOCK_SPEED=4
+//                                   an answer of /api/storyboard with the time each arrived), MOCK_SPEED=4
 //                                   plays it four times as fast
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { extname, join, normalize as normalizePath } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readFileSync } from 'node:fs';
-import handler from '../api/draw.js';
+import handler from '../api/storyboard.js';
 
 const root = fileURLToPath(new URL('../site/', import.meta.url));
 const mock = process.argv.includes('--mock');
@@ -24,7 +24,7 @@ function query(url) {
 
 createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
-  if (url.pathname === '/api/draw') {
+  if (url.pathname === '/api/storyboard') {
     res.status = (code) => { res.statusCode = code; return res; };
     res.json = (body) => { res.setHeader('content-type', 'application/json'); res.end(JSON.stringify(body)); };
     if (mock) {

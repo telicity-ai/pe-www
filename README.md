@@ -5,7 +5,7 @@ that reads a public GitHub repository and lets a visitor try the skill in the br
 options on one of their own screens, and take the result away as a prompt.
 
 - Page: <https://telicity-ai.github.io/pe-www/> (GitHub Pages, the `site/` folder)
-- Analysis: `api/draw.js`, a Vercel function that asks Upstage Solar for a storyboard
+- Analysis: `api/storyboard.js`, a Vercel function that asks Upstage Solar for a storyboard
 
 ## How the preview works
 
@@ -14,36 +14,38 @@ browser ── GitHub API ──▶ file tree, package.json            (the visi
    │        finds the screens, then for one screen: the components it renders,
    │        the layouts around it and the project's stylesheets
    │
-   └─ GET /api/draw?repo=…&ref=…&path=…&rel=…&css=… ──▶ Vercel function
+   └─ GET /api/storyboard?repo=…&ref=…&path=…&rel=…&css=… ──▶ Vercel function
                                                          │ fetches those files from raw.githubusercontent.com
-                                                         │ asks Solar (solar-pro4): one call for the page,
-                                                         │ and meanwhile one call for each piece of each area
+                                                         │ asks Solar (solar-pro4): one call writes the screen;
+                                                         │ each area's element then goes to a call per option
                                                          ▼ passes the answer on as it is written
-   draws the page while it arrives,             ◀── one JSON object per line: plan, page, area, option, done
+   draws the page while it arrives,             ◀── one JSON object per line: plan, page, place, option, done
    in a sandboxed frame with the project's own stylesheets
    (and Tailwind's browser build when the project uses Tailwind),
    then the dots and the options; writes the prompt as options are picked
 ```
 
 - **A storyboard** is the screen as static HTML, written with the class names the code uses, and
-  two or three areas with two options each beside the present state. An option names a pattern
-  of picky-eater's catalog. The instructions are in `api/_lib/brief.js`.
-- **A person waits for the longest call, not for their sum.** The first call names the areas
-  (each by the opening tag of its element in the source) and writes the page around them. As
-  soon as an area is named, three more calls start: that element as it is today, and the same
-  element with each of two patterns. A screen shows after a few seconds and is complete in
-  about twenty, where one call for everything took a minute or more. `api/draw.js` holds the
-  calls together; `site/assets/board.js` puts the pieces together, also when the page wrote out
-  a part that an area brings itself.
+  two or three areas of it with two options each beside the present state. An option names a
+  pattern of picky-eater's catalog. The instructions are in `api/_lib/brief.js`.
+- **The page is of one piece.** One call names the areas and writes the whole screen, the areas
+  included; an area is a stretch of that page, not something written apart from it. The plan
+  says how each area's element begins, so the function finds the element in the page as it is
+  written (`api/_lib/answer.js`) and, as soon as it is complete, has each option drawn by a call
+  of its own that is given that element. A screen shows after a few seconds; it is complete a
+  little after the page is. (An earlier version had the areas written apart from the page, by
+  calls that ran beside it: faster by some seconds, but the pieces did not always fit.)
 - **Icons are named, not drawn.** The model writes `<svg data-icon="lucide:plus">`; the page
   fetches the drawing from Iconify (`site/assets/icons.js`). Coordinates of icons were a quarter
   of what the model wrote, and often wrong.
 - **It looks like the product because its styles are the product's.** The page loads the
   repository's stylesheets into the frame. A desktop screen is laid out at a desktop's width and
-  shown smaller when the frame is narrower.
+  shown smaller when the frame is narrower. A project with a dark variant is shown as the
+  visitor's system is set, with a switch beside it. What an application sets while it runs (a
+  theme chosen in its settings) is not there.
 - **The function is given file names, not text.** It fetches the files itself, so it cannot be
   used to send arbitrary text to the model. `api/_lib/answer.js` reads and bounds the answer; an
-  answer that is the project's source code instead of HTML is broken off and asked for again.
+  option that is the project's source code instead of HTML is broken off and asked for again.
 - **Markup from a model is not trusted.** `site/assets/preview.js` parses it and keeps only
   harmless elements and attributes; the frame is sandboxed without an origin of its own; and its
   Content Security Policy runs two scripts only and loads nothing else.

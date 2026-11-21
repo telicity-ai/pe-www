@@ -4,7 +4,7 @@ import { RepoError, collectFiles, parseRepo, scanRepo } from './github.js';
 import { iconsIn, loadIcons } from './icons.js';
 import { getLang, initLang, setLang, t } from './i18n.js';
 import { Preview, mountThumb } from './preview.js';
-import { buildPrompt, diffPrompt, mergePrompt } from './prompt.js';
+import { buildProjectPrompt, diffPrompt, mergePrompt } from './prompt.js';
 import { sampleProject } from './sample.js';
 
 const $ = (id) => document.getElementById(id);
@@ -26,43 +26,107 @@ const state = {
   preview: null, // { area, option } while an option is pointed at
   run: 0, // increases with every analysis; an answer for an older run is dropped
   retry: null,
+  // Light or dark, for a project that has both: as this person's own system has it.
+  scheme: window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light',
 };
 
-// ---------- a screen and its prompt ----------
+// ---------- what is kept between visits ----------
+
+// The picks of a project, and for a repository the analyses they were made on, so that coming
+// back to the page finds them again. One entry per project, the five latest repositories.
+const STORE = 'pe-picks:';
+const storeKey = (project) => `${STORE}${project.sample ? 'sample' : `${project.repo.owner}/${project.repo.name}`.toLowerCase()}`;
+
+function saveNow(project) {
+  const screens = {};
+  for (const screen of project.screens) {
+    if (!screen.analysis || screen.status !== 'ready') continue;
+    screens[screen.id] = { title: screen.title, choices: screen.choices, ...(project.sample ? {} : { analysis: screen.analysis }) };
+  }
+  const data = { v: 1, at: Date.now(), tree: project.scan?.treeSha ?? null, screens, generated: project.generated, ...(project.text !== project.generated ? { text: project.text } : {}) };
+  try {
+    localStorage.setItem(storeKey(project), JSON.stringify(data));
+    const others = Object.keys(localStorage).filter((key) => key.startsWith(STORE) && key !== `${STORE}sample`)
+      .map((key) => { try { return [key, JSON.parse(localStorage.getItem(key)).at ?? 0]; } catch { return [key, 0]; } })
+      .sort((a, b) => b[1] - a[1]);
+    for (const [key] of others.slice(5)) localStorage.removeItem(key);
+  } catch {
+    // No room, or no storage at all: the picks then last as long as the page.
+    try { localStorage.removeItem(storeKey(project)); } catch { /* nothing more to try */ }
+  }
+}
+
+let saveTimer = null;
+function save(project) {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => saveNow(project), 300);
+}
+
+/** What was kept for this project, or null. Analyses of a repository count only for the same state of its files. */
+function kept(project) {
+  try {
+    const data = JSON.parse(localStorage.getItem(storeKey(project)));
+    if (data?.v !== 1 || typeof data.screens !== 'object') return null;
+    if (!project.sample && data.tree !== (project.scan?.treeSha ?? null)) return null;
+    return data;
+  } catch {
+    return null;
+  }
+}
+
+// ---------- the picks and the prompt ----------
 
 function prepare(screen, choices = {}) {
   const valid = {};
   for (const area of screen.analysis.areas) {
-    if (area.options.some((o) => o.id === choices[area.id])) valid[area.id] = choices[area.id];
+    if (area.options.some((o) => o.id === choices?.[area.id])) valid[area.id] = choices[area.id];
   }
   screen.choices = valid;
-  screen.generated = buildPrompt(screen.analysis, valid, getLang());
-  screen.text = screen.generated;
-  screen.last = null;
 }
 
-/** The analysis of a screen has grown while it is shown: the prompt follows, and keeps what was chosen and typed. */
+/** The screens that the prompt speaks of: those with a pick, or else the one that is shown. `tried` stands in for the picks of the screen that is shown. */
+function spoken(project, tried = null) {
+  const choicesOf = (screen) => (tried && screen === state.screen ? tried : screen.choices ?? {});
+  const picked = project.screens.filter((s) => s.analysis && Object.keys(choicesOf(s)).length);
+  const list = picked.length || !state.screen?.analysis || !project.screens.includes(state.screen) ? picked : [state.screen];
+  return list.map((screen) => ({ analysis: screen.analysis, choices: choicesOf(screen) }));
+}
+const promptOf = (project, tried = null) => buildProjectPrompt(spoken(project, tried), getLang());
+
+/**
+ * Writes the project's one prompt anew after something changed (a pick, another screen, an
+ * analysis that has grown), keeping what the person typed into it. Returns what changed.
+ */
+function rewrite(project = state.project) {
+  if (!project) return { added: [], removed: [] };
+  const before = project.generated ?? '';
+  const after = promptOf(project);
+  project.text = project.text === undefined || project.text === before ? after : mergePrompt(project.text, before, after);
+  project.generated = after;
+  if (project.restored) {
+    // What was typed into the prompt on an earlier visit belongs to the prompt as it then was.
+    if (project.restored.text && project.restored.generated === after) project.text = project.restored.text;
+    project.restored = null;
+  }
+  save(project);
+  return diffPrompt(before, after);
+}
+
+/** The analysis of a screen has grown while it is shown: its picks follow, and the prompt. */
 function grow(screen, analysis) {
-  const before = screen.generated;
   screen.analysis = analysis;
   for (const id of Object.keys(screen.choices)) {
     if (!analysis.areas.some((a) => a.id === id && a.options.some((o) => o.id === screen.choices[id]))) delete screen.choices[id];
   }
-  const after = buildPrompt(analysis, screen.choices, getLang());
-  screen.text = mergePrompt(screen.text, before, after);
-  screen.generated = after;
+  if (state.project?.screens.includes(screen)) rewrite();
 }
 
 function choose(areaId, optionId) {
   const screen = state.screen;
-  const before = screen.generated;
   if (screen.choices[areaId] === optionId) delete screen.choices[areaId];
   else screen.choices[areaId] = optionId;
-  const after = buildPrompt(screen.analysis, screen.choices, getLang());
-  screen.text = mergePrompt(screen.text, before, after);
-  screen.generated = after;
-  const change = diffPrompt(before, after);
-  if (change.added.length || change.removed.length) screen.last = change;
+  const change = rewrite();
+  if (change.added.length || change.removed.length) state.project.last = change;
 }
 
 // ---------- the interface in the middle ----------
@@ -113,9 +177,10 @@ function renderPop() {
   pop.setAttribute('aria-label', area.label);
   pop.innerHTML = `<div class="pop-h">${esc(area.label)}</div><div class="pop-o">${area.options.map((option) => {
     const selected = screen.choices[area.id] === option.id;
+    const label = option.label || t('pop.keep');
     const reason = option.suggested ? `${t('pop.suggested')}${option.because ? `: ${option.because}` : ''}` : '';
-    const name = reason ? `${option.label}. ${reason}` : option.label;
-    return `<button type="button" class="opt${selected ? ' sel' : ''}" data-option="${esc(option.id)}" aria-pressed="${selected}" aria-label="${esc(name)}" title="${esc(option.label)}">${
+    const name = reason ? `${label}. ${reason}` : label;
+    return `<button type="button" class="opt${selected ? ' sel' : ''}" data-option="${esc(option.id)}" aria-pressed="${selected}" aria-label="${esc(name)}" title="${esc(label)}">${
       option.suggested ? `<i class="star" title="${esc(reason)}">★</i>` : ''
     }<div class="th">${option.keep ? `<span class="now">${esc(t('pop.now'))}</span>` : ''}</div></button>`;
   }).join('')}</div>`;
@@ -218,6 +283,9 @@ function renderToolbar() {
   $('rname').textContent = `${repo.owner}/${repo.name}`;
   $('rsub').textContent = repo.sub ? `/${repo.sub}` : '';
   $('rtag').hidden = !project.sample;
+  // The choice between light and dark is offered when the project's styles have both.
+  $('scheme').hidden = !state.screen?.assets?.dark;
+  for (const button of $('scheme').children) button.classList.toggle('on', button.dataset.s === state.scheme);
   const areas = state.screen?.analysis?.areas ?? [];
   const chosen = areas.filter((a) => state.screen.choices[a.id]).length;
   $('pips').innerHTML = areas.map((a) => `<i class="${state.screen.choices[a.id] ? 'f' : ''}"></i>`).join('');
@@ -231,7 +299,7 @@ function renderToolbar() {
 function renderRail() {
   const project = state.project;
   $('screens').innerHTML = project.screens.map((screen) => {
-    const badge = screen.status === 'loading' ? '<b class="spin"></b>' : screen.analysis ? `<b>${screen.analysis.areas.length}</b>` : '';
+    const badge = screen.status === 'loading' ? '<b class="spin"></b>' : screen.analysis ? `<b${Object.keys(screen.choices ?? {}).length ? ' class="has"' : ''}>${Object.keys(screen.choices ?? {}).length ? `${Object.keys(screen.choices).length}/` : ''}${screen.analysis.areas.length}</b>` : '';
     return `<button type="button" class="scr${screen === state.screen ? ' on' : ''}" data-screen="${esc(screen.id)}" title="${esc(screen.path)}">${badge}${esc(screen.title)}<small>${esc(screen.path)}</small></button>`;
   }).join('');
   $('stack').innerHTML = project.stack.map((item) => `<span>${esc(item)}</span>`).join('');
@@ -239,11 +307,12 @@ function renderRail() {
 
 function renderDiff() {
   const screen = state.screen;
-  if (!screen) return;
-  let change = screen.last;
+  const project = state.project;
+  if (!screen || !project) return;
+  let change = project.last;
   let previewing = false;
   if (state.preview) {
-    change = diffPrompt(screen.generated, buildPrompt(screen.analysis, shown(), getLang()));
+    change = diffPrompt(project.generated, promptOf(project, shown()));
     previewing = true;
   }
   const box = $('df');
@@ -262,8 +331,9 @@ function renderDiff() {
 function renderPrompt() {
   const screen = state.screen;
   if (!screen) return;
-  if (textarea.value !== screen.text) textarea.value = screen.text;
-  $('reset').hidden = screen.text === screen.generated;
+  const project = state.project;
+  if (textarea.value !== project.text) textarea.value = project.text ?? '';
+  $('reset').hidden = project.text === project.generated;
   renderDiff();
 }
 
@@ -278,6 +348,9 @@ function select(screen, { open = null } = {}) {
   state.screen = screen;
   state.open = open;
   state.preview = null;
+  screen.assets.scheme = state.scheme;
+  // With no pick anywhere the prompt speaks of the screen that is shown.
+  rewrite();
   preview.load(screen.analysis, screen.assets, screen.choices, screen.title);
   preview.view(open, Object.keys(screen.choices));
   renderAround();
@@ -291,12 +364,15 @@ function loadSample({ hint = false } = {}) {
   hideOverlay();
   $('er').hidden = true;
   const project = sampleProject(getLang());
-  for (const screen of project.screens) prepare(screen);
+  const before = kept(project);
+  for (const screen of project.screens) prepare(screen, before?.screens[screen.id]?.choices);
+  project.restored = before;
   state.project = project;
   const first = project.screens[0];
   state.screen = first;
-  // One choice is already made and one area is open, so that the first look shows how it works.
-  if (hint) choose('sections', 'cards');
+  // One choice is already made and one area is open, so that the first look shows how it works;
+  // a person who has been here before finds their own picks instead.
+  if (hint && !before) choose('sections', 'cards');
   select(first, { open: hint && window.matchMedia('(min-width: 861px)').matches ? 'sections' : null });
 }
 
@@ -374,10 +450,12 @@ function boardUrl(project, screen, files) {
   if (project.scan.treeSha) params.set('v', project.scan.treeSha.slice(0, 12));
   // An answer that failed is kept by the CDN under its address: asking again needs another one.
   params.set('try', String(screen.tries));
-  return `${API_BASE}/api/draw?${params}`;
+  return `${API_BASE}/api/storyboard?${params}`;
 }
 
 const DRAW_EVERY_MS = 180;
+/** All the markup of an answer so far, to look for the icons it names. */
+const markupOf = (board) => board.page + [...board.areas.values()].map((a) => a.options.map((o) => o.html).join('')).join('');
 
 /**
  * Analyzes a screen and shows it while the answer is written: the page first, then each area as
@@ -400,12 +478,39 @@ async function analyzeScreen(screen, run = ++state.run) {
   let board = null;
   let showing = false; // the screen has taken the stage at least once
   let timer = null;
-  const watched = () => run === state.run;
+  // A run that nobody watches (run 0: a screen read ahead) shows nothing until it is come back to.
+  const watched = () => run !== 0 && run === state.run;
   const wait = () => {
+    if (!watched()) return;
     state.retry = () => analyzeScreen(screen);
     showOverlay();
     setStep(board?.plan.length ? 'draw' : 'read', { file: screen.path.split('/').slice(-2).join('/') });
   };
+  if (screen.status === 'stored') {
+    // Kept from an earlier visit: only the project's styles are fetched again.
+    screen.status = 'loading';
+    screen.resume = (again) => { run = again; wait(); };
+    wait();
+    renderRail();
+    try {
+      const files = await collectFiles(project.scan, screen.path);
+      screen.assets = files.assets;
+      await loadIcons(iconsIn(screen.analysis.page + screen.analysis.areas.map((a) => a.options.map((o) => o.html).join('')).join('')));
+      screen.status = 'ready';
+      screen.resume = null;
+      if (watched()) {
+        hideOverlay();
+        select(screen);
+      } else renderRail();
+      readAhead();
+      return;
+    } catch {
+      // The styles did not come: the screen is analyzed anew.
+      screen.analysis = null;
+      screen.choices = {};
+    }
+  }
+  screen.failed = false;
   screen.status = 'loading';
   screen.tries = (screen.tries ?? 0) + 1;
   screen.resume = (again) => {
@@ -427,7 +532,7 @@ async function analyzeScreen(screen, run = ++state.run) {
     if (!watched() || !board) return;
     const analysis = current();
     if (!/<[a-z]/i.test(analysis.page)) return;
-    const asked = iconsIn(board.page + [...board.areas.values()].map((a) => (a.keep?.html ?? '') + a.options.map((o) => o.html).join('')).join(''));
+    const asked = iconsIn(markupOf(board));
     if (asked.length) loadIcons(asked).then((found) => found && draw());
     if (analysis.screen.title) screen.title = analysis.screen.title;
     if (!showing) {
@@ -475,7 +580,7 @@ async function analyzeScreen(screen, run = ++state.run) {
     timer = null;
     const analysis = current();
     if (!analysis.areas.length) throw new RepoError('failed');
-    await loadIcons(iconsIn(board.page + [...board.areas.values()].map((a) => (a.keep?.html ?? '') + a.options.map((o) => o.html).join('')).join('')));
+    await loadIcons(iconsIn(markupOf(board)));
     screen.status = 'ready';
     screen.resume = null;
     if (analysis.screen.title) screen.title = analysis.screen.title;
@@ -484,6 +589,8 @@ async function analyzeScreen(screen, run = ++state.run) {
       screen.analysis = analysis;
       prepare(screen);
     }
+    if (state.project?.screens.includes(screen)) rewrite();
+    readAhead();
     if (!watched()) {
       renderRail();
       return;
@@ -500,10 +607,26 @@ async function analyzeScreen(screen, run = ++state.run) {
     clearTimeout(timer);
     screen.status = 'idle';
     screen.resume = null;
+    // A screen that failed is not read ahead a second time; asking for it tries again.
+    screen.failed = true;
     renderRail();
     if (watched()) showError(error);
+    readAhead();
   }
 }
+
+/**
+ * Reads the next screen of the project ahead, one at a time, while the person is busy with the
+ * one that is shown: going to another screen then finds it there. Not while the page is hidden.
+ */
+function readAhead() {
+  const project = state.project;
+  if (!project || project.sample || document.hidden) return;
+  if (project.screens.some((s) => s.status === 'loading')) return;
+  const next = project.screens.find((s) => s.status === 'stored') ?? project.screens.find((s) => s.status === 'idle' && !s.failed);
+  if (next) analyzeScreen(next, 0);
+}
+document.addEventListener('visibilitychange', readAhead);
 
 async function analyzeRepo(input) {
   const run = ++state.run;
@@ -516,6 +639,17 @@ async function analyzeRepo(input) {
     if (run !== state.run) return;
     state.project = { sample: false, repo: scan.repo, stack: scan.stack, scan, screens: scan.screens.map((s) => ({ ...s, status: 'idle' })) };
     state.screen = null;
+    // What was analyzed and picked on an earlier visit, for the same state of the repository's files.
+    const before = kept(state.project);
+    for (const screen of state.project.screens) {
+      const was = before?.screens[screen.id];
+      if (!was?.analysis?.areas?.length || typeof was.analysis.page !== 'string') continue;
+      screen.analysis = was.analysis;
+      screen.title = was.title || screen.title;
+      prepare(screen, was.choices);
+      screen.status = 'stored';
+    }
+    state.project.restored = before;
     $('rname').textContent = `${scan.repo.owner}/${scan.repo.name}`;
     $('rsub').textContent = scan.repo.sub ? `/${scan.repo.sub}` : '';
     $('rtag').hidden = true;
@@ -617,6 +751,12 @@ function setDevice(device) {
   stage.classList.toggle('phone', device === 'phone');
   preview.setNarrow(device === 'phone');
 }
+$('scheme').addEventListener('click', (event) => {
+  const button = event.target.closest('button');
+  if (!button || button.dataset.s === state.scheme) return;
+  state.scheme = button.dataset.s;
+  if (state.screen) select(state.screen);
+});
 $('seg').addEventListener('click', (event) => {
   const button = event.target.closest('button');
   if (button) setDevice(button.dataset.w);
@@ -624,11 +764,13 @@ $('seg').addEventListener('click', (event) => {
 
 textarea.addEventListener('input', () => {
   if (!state.screen) return;
-  state.screen.text = textarea.value;
-  $('reset').hidden = state.screen.text === state.screen.generated;
+  state.project.text = textarea.value;
+  $('reset').hidden = state.project.text === state.project.generated;
+  save(state.project);
 });
 $('reset').addEventListener('click', () => {
-  state.screen.text = state.screen.generated;
+  state.project.text = state.project.generated;
+  save(state.project);
   renderPrompt();
 });
 
@@ -682,8 +824,10 @@ for (const button of document.querySelectorAll('[data-lang]')) {
       state.screen = fresh.screens.find((s) => s.id === current) ?? fresh.screens[0];
     } else {
       // An analysis keeps the language it was made in; the prompt around it follows the page.
-      for (const screen of project.screens) if (screen.analysis) prepare(screen, screen.choices);
+      project.text = undefined;
+      project.last = null;
     }
+    rewrite();
     if (state.screen) {
       const open = state.open;
       state.preview = null;

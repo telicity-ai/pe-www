@@ -2,7 +2,8 @@ import { DECISIONS, PATTERNS } from './catalog.js';
 
 // What the model is told. The rules and the files come first and are the same for every call
 // about one screen, so that the model's prompt cache serves the calls that run side by side;
-// the task, which differs, comes last.
+// the task, which differs, comes last. One call writes the screen; then one call for each
+// option of each area draws that area's element with a pattern of the catalog.
 
 function catalogText() {
   const decisions = DECISIONS.map(
@@ -22,7 +23,7 @@ export function systemPrompt(lang) {
 
 The person must recognize their own interface. The mockup is shown with the project's own stylesheets loaded (and Tailwind, when the project uses it), so the same class names give the same look. You write the markup the code renders; you do not design.
 
-You are asked for one part of the storyboard at a time. The task is at the end of the message, after the files. A person is waiting while you write: write what the task asks for and nothing else.
+You are asked for one part of the storyboard at a time (the screen, or one option of one area). The task is at the end of the message, after the files. A person is waiting while you write: write what the task asks for and nothing else.
 
 RULES FOR ALL HTML
 - Reproduce the element structure and the class names of the code exactly: className strings as written, conditional classes in their default state, variant helpers (cva, clsx, cn, tv) resolved to the variant the code uses. Keep data- and aria- attributes that the styles select on (data-state, data-slot, aria-selected, and so on).
@@ -52,33 +53,10 @@ export function filesPrompt({ repo, path, stack, files, styles }) {
   return `Repository: ${repo}\nScreen file: ${path}\n${stack ? `Stack: ${stack}\n` : ''}\nThe first file is the screen. The others are components it renders, then stylesheets.\n\n${[...sources, ...sheets].join('\n\n')}`;
 }
 
-const PAGE_EXAMPLE = `@@AREA channels | on-off-setting | checkbox, segmented-control | <div className="divide-y rounded-lg border"> in NotificationList: the rows of switches, without the heading above it
-@@AREA save | save-settings | sticky-save-bar, sticky-header | <div className="flex justify-end"> at the end of the form in NotificationsPage: it holds only the Save button
-@@CSS
-@@PAGE
-<div class="min-h-screen bg-background text-foreground" style="min-height:100vh">
-<main class="mx-auto flex max-w-2xl flex-col gap-6 p-6">
-<header class="flex items-center gap-2"><svg data-icon="lucide:bell" class="size-5"></svg><h1 class="text-xl font-semibold">Notifications</h1></header>
-<p class="text-sm text-muted-foreground">Choose what we email you about.</p>
-@@AREA channels
-@@AREA save
-</main>
-</div>
-@@TITLE Notifications
-@@SUMMARY A settings panel with one switch per notification and a Save button at the end.
-@@END`;
-
 const TODAY_HTML = `<div class="divide-y rounded-lg border">
 <label class="flex items-center justify-between gap-4 p-4"><span class="text-sm font-medium">Mentions</span><button role="switch" aria-checked="true" data-state="checked" class="inline-flex h-5 w-9 items-center rounded-full bg-input p-0.5 data-[state=checked]:bg-primary"><span data-state="checked" class="size-4 rounded-full bg-background data-[state=checked]:translate-x-4"></span></button></label>
 <label class="flex items-center justify-between gap-4 p-4"><span class="text-sm font-medium">Weekly digest</span><button role="switch" aria-checked="false" data-state="unchecked" class="inline-flex h-5 w-9 items-center rounded-full bg-input p-0.5 data-[state=checked]:bg-primary"><span data-state="unchecked" class="size-4 rounded-full bg-background data-[state=checked]:translate-x-4"></span></button></label>
 </div>`;
-
-const TODAY_EXAMPLE = `@@LABEL How the notification choices are shown
-@@NOW A switch on every row
-@@HTML
-${TODAY_HTML}
-@@SUGGEST checkbox | The page has a Save button, so nothing takes effect at once: a checkbox says that, a switch does not.
-@@END`;
 
 const OPTION_EXAMPLE = `@@OPTION Checkboxes in one list
 @@HTML
@@ -96,105 +74,116 @@ const CHECK = `BEFORE YOU ANSWER, CHECK
   HTML:   <button data-slot="button" class="inline-flex h-8 items-center justify-center gap-2 rounded-md border bg-background px-3 text-sm font-medium"><svg data-icon="lucide:plus" class="size-4"></svg>Add</button>
 - Every <svg> is empty and has data-icon, also when the code draws it itself: no <path>.`;
 
-/** The first call: which areas there are, then the page around them. */
-export function pageTask() {
-  return `TASK: THE AREAS AND THE PAGE AROUND THEM
+const patternText = (id) => {
+  const pattern = PATTERNS.find((p) => p.id === id);
+  return pattern ? `${pattern.id} (${pattern.name}: ${pattern.what})` : id;
+};
 
-You choose the areas and write the page. Colleagues write each area at the same time, from the same files, without seeing your page: you leave the areas out and say where they go.
+const SCREEN_EXAMPLE = `@@AREA channels | on-off-setting | checkbox, segmented-control | How the notification choices are shown | <div class="divide-y rounded-lg border"><label class="flex items-center justify-between gap-4 p-4">
+@@AREA save | save-settings | sticky-save-bar, sticky-header | Where Save sits | <div class="flex justify-end"><button class="inline-flex h-9 items-center
+@@CSS
+@@PAGE
+<div class="min-h-screen bg-background text-foreground" style="min-height:100vh">
+<main class="mx-auto flex max-w-2xl flex-col gap-6 p-6">
+<header class="flex items-center gap-2"><svg data-icon="lucide:bell" class="size-5"></svg><h1 class="text-xl font-semibold">Notifications</h1></header>
+<p class="text-sm text-muted-foreground">Choose what we email you about.</p>
+${TODAY_HTML}
+<div class="flex justify-end"><button class="inline-flex h-9 items-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground">Save</button></div>
+</main>
+</div>
+@@WHERE channels | <div class="divide-y rounded-lg border"><label class="flex items-center justify-between gap-4 p-4">
+@@WHERE save | <div class="flex justify-end"><button class="inline-flex h-9 items-center
+@@TITLE Notifications
+@@SUMMARY A settings panel with one switch per notification and a Save button at the end.
+@@END`;
+
+/** The call that writes the screen: which areas there are, then the whole page with each area marked in it. */
+export function screenTask() {
+  return `TASK: THE SCREEN AND ITS AREAS
 
 Answer in exactly this form. ${FORM}
 
-@@AREA id | decision | pattern, pattern | where
+@@AREA id | decision | pattern, pattern | label | the beginning of its element
 @@CSS
 extra CSS, usually nothing
 @@PAGE
-the HTML of the screen, with a line "@@AREA id" in the place of each area
+the HTML of the screen, the areas included
+@@WHERE id | the beginning of that area's element
 @@TITLE the screen's name as a person would say it ("Settings", "Pricing"), at most 4 words
 @@SUMMARY one sentence on what the screen is today
 @@END
 
 THE AREAS
 - Exactly 3 areas (2 when the screen is small). Pick them where the catalog has a real alternative for what the code does: the layout of a part, the kind of control, where an action sits, how a destructive action is guarded, how a list or a table is shown, navigation.
-- An area is ONE element that a person sees in the default state of the screen, of at most about 30 lines of HTML: a group of rows, a toolbar, a card, a form section; not the whole page or half of it, not a single button or field, not a state that only shows after an error. The areas are separate parts of the screen: none lies inside another, none is the form or the list that another is a part of.
-- @@AREA has four parts: a short kebab-case id; the id of the catalog decision it answers, or - when none does; the ids of exactly 2 catalog patterns that would be real alternatives to what the code does there, and that look different from each other; and where. Where begins with the opening tag of that element, copied from the source as it is written there, and goes on with the component it is in and what it contains. A colleague finds that tag in the source and writes exactly the element it opens, so pick an element whose tag stands once in the files.
+- An area is ONE element that a person sees in the default state of the screen, of at most about 30 lines of HTML: a group of rows, a toolbar, a card, a form section; not the whole page or half of it, not the frame around the screen (a sidebar, a top bar), not a single button or field, not a state that only shows after an error. The areas are separate parts of the screen itself, in its upper part: none lies inside another, none is in the frame around the screen.
+- @@AREA has five parts: a short kebab-case id; the id of the catalog decision it answers, or - when none does; the ids of exactly 2 catalog patterns that would be real alternatives to what the code does there and that look different from each other, the one you would suggest for this screen first; a label of at most 7 plain words that says what is being decided ("Where Save sits", "How the plans are compared"); and the beginning of the area's element as you are about to write it in the page: its opening tag in HTML and the tag that follows it, about 100 characters. The page is searched for exactly these characters to find the element, so write them in the page as you write them here, and pick an element that begins like no other.
 
 THE PAGE
-- The HTML of the screen as it is today. It starts with ONE root element that carries the classes the application puts on <html>, <body> or its root (background, text color, font), with style="min-height:100vh".
-- When a layout or parent route file is among the files, the screen sits inside what that file renders (a sidebar, a top bar): reproduce that structure around the screen, do not invent one.
-- Do NOT write the element of an area: not its opening tag, not what is inside it, not its closing tag. In its place stands the line "@@AREA id", alone, and the page goes on with what follows that element. Every area stands in the page exactly once.
-- Besides the areas, at most about 80 lines. Leave out what cannot be seen and what lies far below the first screenful; of a long list of similar things (navigation entries, table rows, cards) write 3.
+- The whole HTML of the screen as it is today, the areas included. It starts with ONE root element that carries the classes the application puts on <html>, <body> or its root (background, text color, font), with style="min-height:100vh".
+- The screen in its ordinary state: when the code returns one thing while loading, another after an error and another with data, write the one with data, as a signed-in person finds it on an ordinary day.
+- When a layout or parent route file is among the files, the screen sits inside what that file renders (a sidebar, a top bar): reproduce that frame around the screen, briefly. Its containers with their classes, its title, at most 3 entries of its navigation: no more than about 15 lines for all of it. Do not invent a frame, and do not leave one empty.
+- Each area's element stands in the page, complete, and begins with the characters that its @@AREA line gives.
+- An area is the ONE element that holds it whole: the list, not a row of it.
+- A person waits while you write, and the page is cut off after about 100 lines: the screen itself must be whole by then. Leave out what cannot be seen and what lies below the first screenful and a half; of a long list of similar things (navigation entries, table rows, cards, steps, fields of a long form) write 3.
+- After the page, one @@WHERE line for each area: its id and the beginning of its element (its opening tag and the tag that follows it, about 100 characters), copied character for character from the page you wrote.
 - @@CSS is for what the mockup needs and the project's stylesheets do not give: design tokens that live in a tailwind.config file instead of CSS (write them for Tailwind 4 as "@theme inline { --color-NAME: VALUE; }"), rules from the <style> blocks of Vue, Svelte or Astro files that the mockup uses, and styles that the project makes in JavaScript (styled-components, CSS-in-JS, a component library without stylesheets). Never restyle what the project's classes already style. Leave it empty otherwise.
 
 EXAMPLE (shortened)
-${PAGE_EXAMPLE}
+${SCREEN_EXAMPLE}
 
 ${CHECK}
-- The page holds one line "@@AREA id" for every area of your plan, and nothing of the element it stands for: in the example the rows of switches and the Save button are not in the page.`;
+- Every area of your plan has its element in the page, beginning as its @@AREA line says, and its @@WHERE line after the page.`;
 }
 
-const patternText = (id) => {
-  const pattern = PATTERNS.find((p) => p.id === id);
-  return pattern ? `${pattern.id} (${pattern.name}: ${pattern.what})` : id;
-};
-
-function areaText(area) {
+/** The calls that follow: one area's element, drawn with one pattern of the catalog. */
+export function variantTask(area, option, today, again = false) {
   const decision = DECISIONS.find((d) => d.id === area.decision);
-  return `Area: ${area.wanted}\nWhere: ${area.where}${decision ? `\nThe question it raises: ${decision.id}: ${decision.question}` : ''}`;
-}
+  return `TASK: ONE ELEMENT WITH ANOTHER PATTERN
 
-/** A call that runs beside the page: one area as it is today. */
-export function todayTask(area, again = false) {
-  return `TASK: ONE AREA AS IT IS TODAY
+The mockup of this screen is written. One element of it is a place where a person may want something else:
 
-A colleague is writing the page of this screen and has left one element out for you to write:
+What is being decided: ${area.label}${decision ? `\nThe question: ${decision.question}` : ''}
 
-${areaText(area)}
+The element as it is today:
+${today}
 
-Other colleagues draw two alternatives for it: ${area.options.map((o) => patternText(o.pattern)).join('; and ')}.
-
-Write the HTML of that ONE element as the code renders it today. It is the element that the tag quoted under "Where" opens in the source: your HTML begins with what that tag renders and ends where it closes. Nothing that stands before or after it, not its parent, not the page. Then say which of the two alternatives you would suggest for this screen.
+Write that element as it would look with this pattern of the catalog instead: ${patternText(option.pattern)}.
 
 Answer in exactly this form. ${FORM}
 
-@@LABEL what is being decided here
-@@NOW what a person sees there today
-@@HTML
-the element as it is today
-@@SUGGEST pattern | the reason
-@@END
-
-- @@LABEL: at most 7 plain words ("Where Save sits", "How the plans are compared"). @@NOW: at most 8 plain words, no design vocabulary.
-- The HTML is the markup that the code renders there: every component expanded into its elements with all of its classes, by the rules above. At most about 30 lines; of a long list of similar things write 3.
-- @@SUGGEST: the id of one of the two patterns, and one sentence of at most 22 words with a reason that comes from this screen.
-
-EXAMPLE (another screen)
-${TODAY_EXAMPLE}
-
-${CHECK}${again ? '\n\nYour last answer was the project\'s source code. Write HTML.' : ''}`;
-}
-
-/** A call that runs beside the page: one area as it would look with one pattern of the catalog. */
-export function optionTask(area, option, again = false) {
-  return `TASK: ONE AREA WITH ANOTHER PATTERN
-
-A colleague is writing the page of this screen and has left one element out:
-
-${areaText(area)}
-
-Another colleague writes that element as it is today. You write it as it would look with this pattern of the catalog instead: ${patternText(option.pattern)}.
-
-Answer in exactly this form. ${FORM}
-
-@@OPTION what a person would see
+@@OPTION what a person would see${option.suggested ? '\n@@WHY why this suits this screen' : ''}
 @@HTML
 the element with that pattern
 @@END
 
-- @@OPTION: at most 8 plain words, no design vocabulary and no pattern names ("A bar that stays at the bottom").
-- The element of today is the one that the tag quoted under "Where" opens in the source, and nothing around it. Your HTML replaces it: ONE element that fits in the same place (the same kind of child its parent expects), with the same content. Build it from the project's own classes, tokens and components, expanded into elements by the rules above, so that it looks like it belongs to this product. It must look clearly different from today. At most about 30 lines.
+- @@OPTION: at most 8 plain words, no design vocabulary and no pattern names ("A bar that stays at the bottom").${option.suggested ? '\n- @@WHY: one sentence of at most 22 words, with a reason that comes from this screen.' : ''}
+- The HTML replaces the element of today: ONE element that fits in the same place (the same kind of child its parent expects), with the same content and nothing that stands around it today. Build it from the classes that the element of today and the project's components use, so that it looks like it belongs to this product. It must look clearly different from today. At most about 30 lines.
 
 EXAMPLE (another screen: rows of switches, drawn with the pattern checkbox)
 ${OPTION_EXAMPLE}
 
 ${CHECK}${again ? '\n\nYour last answer was the project\'s source code. Write HTML.' : ''}`;
+}
+
+/** A call for a page in which none of the planned areas was found: which areas the page as it is written has. */
+export function areasTask(page) {
+  return `TASK: THE AREAS OF A WRITTEN SCREEN
+
+The mockup of this screen is written:
+
+${page}
+
+Name 2 areas of it where the catalog has a real alternative for what the code does. An area is ONE element of the mockup above that a person sees, of at most about 30 lines: a group of rows, a toolbar, a card, a form section; not the whole page, not the frame around the screen, not a single button or field. None lies inside another.
+
+Answer in exactly this form. ${FORM}
+
+@@AREA id | decision | pattern, pattern | label | the beginning of its element
+@@END
+
+- A short kebab-case id; the id of the catalog decision it answers, or - when none does; the ids of exactly 2 catalog patterns that look different from each other, the one you would suggest first; a label of at most 7 plain words that says what is being decided; and the beginning of the element (its opening tag and the tag that follows it, about 100 characters), copied character for character from the mockup above.
+
+EXAMPLE
+@@AREA channels | on-off-setting | checkbox, segmented-control | How the notification choices are shown | <div class="divide-y rounded-lg border"><label class="flex items-center justify-between gap-4 p-4">
+@@AREA save | save-settings | sticky-save-bar, sticky-header | Where Save sits | <div class="flex justify-end"><button class="inline-flex h-9 items-center
+@@END`;
 }

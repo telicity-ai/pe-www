@@ -13,7 +13,7 @@ const TAILWIND = 'https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4.3.5';
 // ---------- HTML ----------
 
 const DROP_WITH_CONTENT = new Set(['script', 'style', 'link', 'meta', 'base', 'title', 'iframe', 'frame', 'frameset', 'object', 'embed', 'applet', 'noscript', 'template', 'foreignobject', 'animate', 'animatemotion', 'animatetransform', 'set', 'use', 'image', 'audio', 'video', 'source', 'track', 'canvas', 'portal', 'slot', 'dialog']);
-const HTML_TAGS = new Set(('a abbr address article aside b bdi bdo blockquote br button caption cite code col colgroup data dd del details dfn div dl dt em fieldset figcaption figure footer form h1 h2 h3 h4 h5 h6 header hgroup hr i img input ins kbd label legend li main mark menu meter nav ol optgroup option output p picture pre progress q rp rt ruby s samp search section select small span strong sub summary sup table tbody td textarea tfoot th thead time tr u ul var wbr pe-area pe-wait').split(' '));
+const HTML_TAGS = new Set(('a abbr address article aside b bdi bdo blockquote br button caption cite code col colgroup data dd del details dfn div dl dt em fieldset figcaption figure footer form h1 h2 h3 h4 h5 h6 header hgroup hr i img input ins kbd label legend li main mark menu meter nav ol optgroup option output p picture pre progress q rp rt ruby s samp search section select small span strong sub summary sup table tbody td textarea tfoot th thead time tr u ul var wbr pe-area').split(' '));
 const SVG_TAGS = new Set(('svg g path circle ellipse rect line polyline polygon text tspan defs lineargradient radialgradient stop clippath mask title desc').split(' '));
 const ATTRIBUTES = new Set(('class id style title role tabindex lang dir hidden open type value placeholder checked disabled selected readonly multiple name for rows cols colspan rowspan scope width height alt min max step size maxlength low high optimum inert draggable datetime label '
   + 'viewbox d fill fill-rule fill-opacity clip-rule stroke stroke-width stroke-linecap stroke-linejoin stroke-dasharray stroke-dashoffset stroke-opacity opacity cx cy r rx ry x y x1 y1 x2 y2 points transform xmlns preserveaspectratio offset stop-color stop-opacity gradientunits gradienttransform font-size text-anchor dominant-baseline').split(' '));
@@ -84,12 +84,6 @@ export function sanitize(html) {
   const doc = parseMarkup(html);
   cleanElement(doc.body);
   for (const svg of doc.body.querySelectorAll('svg[data-icon]')) drawIcon(svg);
-  for (const wait of [...doc.body.querySelectorAll('pe-wait')]) {
-    // The place of a part that is still being written.
-    const box = doc.createElement('div');
-    box.setAttribute('data-pe-wait', '');
-    wait.replaceWith(box);
-  }
   for (const slot of [...doc.body.querySelectorAll('pe-area')]) {
     const id = (slot.getAttribute('id') ?? '').replace(/[^a-z0-9-]/gi, '');
     if (id) slot.replaceWith(doc.createComment(`pe-area:${id}`));
@@ -388,14 +382,15 @@ export function buildDocument(analysis, assets, { token, choices = {}, focus = n
     ? `<script nonce="${n}" src="${TAILWIND}" crossorigin="anonymous"></script><style type="text/tailwindcss">${sheet}</style>`
     : `<style>${sheet}</style>`;
   const config = { token, focus, choices, areas: parts.areas };
-  const root = assets.dark ? ' class="dark" data-theme="dark" style="color-scheme:dark"' : '';
+  // A project with a dark variant is shown dark unless light was asked for.
+  const root = assets.dark && assets.scheme !== 'light' ? ' class="dark" data-theme="dark" style="color-scheme:dark"' : '';
   return `<!doctype html><html lang="en"${root}><head><meta charset="utf-8">`
     + `<meta http-equiv="Content-Security-Policy" content="${csp}">`
     + '<meta name="viewport" content="width=device-width, initial-scale=1">'
     // A named icon has the size of the text around it unless the project's styles give it one: in
     // a layer of its own, declared first, so that any rule of the project wins over it.
     + '<style>@layer pe-base{svg[data-icon]{width:1em;height:1em}}</style>'
-    + `<style>html,body{margin:0}[data-picture]{display:inline-block;background:rgba(128,128,128,.22);min-width:1em;min-height:1em}[data-pe-wait]{display:block;min-height:56px;margin:6px 0;border-radius:8px;background:rgba(128,128,128,.2);animation:pe-wait .9s ease-in-out infinite alternate}@keyframes pe-wait{to{opacity:.35}}svg:not([width]):not([class]):not([style]){width:1em;height:1em}${focus ? 'html{scrollbar-width:none}*{animation:none!important;transition:none!important}' : ''}</style>`
+    + `<style>html,body{margin:0}[data-picture]{display:inline-block;background:rgba(128,128,128,.22);min-width:1em;min-height:1em}svg:not([width]):not([class]):not([style]){width:1em;height:1em}${focus ? 'html{scrollbar-width:none}*{animation:none!important;transition:none!important}' : ''}</style>`
     + styles
     + `</head><body>${parts.page}`
     + `<div id="pe-store" style="display:none!important">${parts.store}</div>`

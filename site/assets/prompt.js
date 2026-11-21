@@ -4,6 +4,8 @@
 const TEXT = {
   en: {
     intro: (title, file) => `Use the picky-eater skill on the ${title} screen of this project (${file}).`,
+    introMany: 'Use the picky-eater skill on these screens of this project, one after another.',
+    heading: (title, file) => `${title} screen (${file}):`,
     leaning: 'I tried it on the web and lean toward:',
     open: 'Still open, show me options for:',
     keep: 'keep it as it is',
@@ -12,6 +14,8 @@ const TEXT = {
   },
   ko: {
     intro: (title, file) => `picky-eater 스킬로 이 프로젝트의 ${title} 화면(${file})을 다듬어 줘.`,
+    introMany: 'picky-eater 스킬로 이 프로젝트의 아래 화면들을 차례로 다듬어 줘.',
+    heading: (title, file) => `${title} 화면 (${file}):`,
     leaning: '웹에서 먼저 골라 봤어. 이쪽이 마음에 들어:',
     open: '아직 못 정한 곳은 옵션을 보여 줘:',
     keep: '지금 그대로 두기',
@@ -23,11 +27,10 @@ const TEXT = {
 // "A bar that stays" reads on as "a bar that stays"; "SMS first" keeps its capitals.
 const lowerFirst = (text) => (/^[A-Z](?![A-Z])/.test(text) ? text.charAt(0).toLowerCase() + text.slice(1) : text);
 
-export function buildPrompt(analysis, choices, lang) {
-  const t = TEXT[lang] ?? TEXT.en;
+/** The lines about one screen: what was picked there and what is still open. Returns whether anything was picked. */
+function body(out, analysis, choices, t, lang) {
   const picked = analysis.areas.filter((a) => choices[a.id]);
   const open = analysis.areas.filter((a) => !choices[a.id]);
-  const out = [t.intro(analysis.screen.title, analysis.screen.file), ''];
   if (picked.length) {
     out.push(t.leaning);
     for (const area of picked) {
@@ -42,7 +45,32 @@ export function buildPrompt(analysis, choices, lang) {
     for (const area of open) out.push(`- ${area.label}`);
     out.push('');
   }
-  out.push(picked.length ? t.outro : t.outroOpenOnly);
+  return picked.length > 0;
+}
+
+export function buildPrompt(analysis, choices, lang) {
+  const t = TEXT[lang] ?? TEXT.en;
+  const out = [t.intro(analysis.screen.title, analysis.screen.file), ''];
+  const picked = body(out, analysis, choices, t, lang);
+  out.push(picked ? t.outro : t.outroOpenOnly);
+  return out.join('\n');
+}
+
+/**
+ * One prompt for several screens of a project, `[{ analysis, choices }]`: what was picked on
+ * each, under its name. One screen reads as `buildPrompt` writes it; none gives an empty prompt.
+ */
+export function buildProjectPrompt(screens, lang) {
+  if (!screens.length) return '';
+  if (screens.length === 1) return buildPrompt(screens[0].analysis, screens[0].choices, lang);
+  const t = TEXT[lang] ?? TEXT.en;
+  const out = [t.introMany, ''];
+  let picked = false;
+  for (const { analysis, choices } of screens) {
+    out.push(t.heading(analysis.screen.title, analysis.screen.file));
+    if (body(out, analysis, choices, t, lang)) picked = true;
+  }
+  out.push(picked ? t.outro : t.outroOpenOnly);
   return out.join('\n');
 }
 

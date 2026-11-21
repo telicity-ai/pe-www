@@ -1,4 +1,4 @@
-// GET /api/draw?repo=owner/name&ref=main&path=src/pages/Settings.tsx&rel=…&css=…&lang=en&stack=React&try=1
+// GET /api/storyboard?repo=owner/name&ref=main&path=src/pages/Settings.tsx&rel=…&css=…&lang=en&stack=React&try=1
 //
 // Reads one screen of a public GitHub repository and asks Solar for a storyboard of it: a static
 // HTML mockup of the screen as the code renders it, and a few areas with options from
@@ -6,20 +6,20 @@
 // cannot be used to send arbitrary text to the model.
 //
 // The answer is passed on while it is written, one JSON object per line:
-//   {"t":"plan","areas":[{"id":…,"options":["id",…]}],"file":…}
+//   {"t":"plan","areas":[{"id":…,"label":…,"decision":…,"options":["id",…]}],"file":…}
 //   {"t":"css","text":…}
-//   {"t":"page","text":…}        the page's HTML, in pieces; <pe-area id="…"></pe-area> stands where an area goes
+//   {"t":"page","text":…}        the page's HTML, in pieces, the areas included
+//   {"t":"place","area":…,"from":…,"to":…}   the area is this stretch of the page (offsets in its text)
 //   {"t":"page-end"}
 //   {"t":"screen","title":…,"summary":…}
-//   {"t":"area","id":…,"label":…,"decision":…}
-//   {"t":"option","area":…,"id":…,"label":…,"html":…,"keep"|"pattern":…}
-//   {"t":"suggest","area":…,"id":…,"because":…}     {"t":"miss","area":…,"id":…}  that piece will not come
+//   {"t":"option","area":…,"id":…,"pattern":…,"label":…,"html":…,"suggested":…,"because":…}
+//   {"t":"miss","area":…,"id":…}   that option will not come ("keep": the area has no place in the page)
 //   {"t":"done","ms":…,…}   or   {"t":"error","code":…,"message":…}
-// One call to the model writes the page around the areas; meanwhile each area as it is today,
-// and each of its options, is written by a call of its own. A person waits for the longest of
-// them instead of for their sum.
-import { LIMITS, Piece, Reader, SOURCE_CODE, asHtml, clean, planArea, slug } from './_lib/answer.js';
-import { filesPrompt, optionTask, pageTask, systemPrompt, todayTask } from './_lib/brief.js';
+// One call to the model writes the whole page, so that the page is of one piece. As soon as the
+// element of an area is written, that element goes to calls of their own, one for each option:
+// a person waits for the page and a little longer, not for everything in a row.
+import { ElementScan, LIMITS, Reader, SOURCE_CODE, Variant, clean, findElement, findStart, markup, planChoice, slug } from './_lib/answer.js';
+import { areasTask, filesPrompt, screenTask, systemPrompt, variantTask } from './_lib/brief.js';
 import { MODEL, SolarError, ask } from './_lib/solar.js';
 
 const DEFAULT_ORIGINS = ['https://telicity-ai.github.io'];
@@ -34,8 +34,12 @@ const MAX_STYLES = 4;
 const SOURCE_FILE = /\.(tsx|jsx|ts|js|mjs|vue|svelte|astro|html|mdx)$/i;
 const STYLE_FILE = /\.(css|scss|less)$|(^|\/)tailwind\.config\.[a-z]+$/i;
 
-const PAGE_TOKENS = 3_200;
-const PIECE_TOKENS = 1_800;
+// What the model may write of a page: about 25 seconds. A page that is cut off there lacks
+// its lower end, which the browser closes; the areas written before that are whole.
+const PAGE_TOKENS = 2_400;
+const OPTION_TOKENS = 1_800;
+// An area larger than this is the page rather than a part of it.
+const AREA_CHARS = 8_000;
 const DEADLINE_MS = 150_000;
 
 const PER_MINUTE = 6;
@@ -160,34 +164,32 @@ async function draw({ query, files, styles, send, signal }) {
   const jobs = [];
   const areas = [];
   const ids = new Set();
-  const placed = new Set();
   let phase = 'plan';
   let css = '';
-  let pageChars = 0;
+  let page = ''; // the page as it is sent: the places of the areas are offsets in it
+  let waiting = '';
+  let flushed = 0;
+  let captures = []; // areas whose element is being written
   let title = null;
   let summary = null;
 
-  /**
-   * One piece of an area (as it is today, or with one pattern), in a call of its own. An answer
-   * that turns out to be source code is broken off and asked for once more.
-   */
-  async function writePiece(area, option, attempt = 0) {
-    const kind = `${area.id}:${option ? option.id : 'today'}`;
-    const piece = new Piece(area, option);
-    const reader = new Reader((name, rest) => piece.marker(name, rest), (text) => piece.text(text));
+  /** One option of an area, in a call of its own. An answer that turns out to be source code is broken off and asked for once more. */
+  async function writeOption(area, option, attempt = 0) {
+    const kind = `${area.id}:${option.id}`;
+    const variant = new Variant(area, option);
+    const reader = new Reader((name, rest) => variant.marker(name, rest), (text) => variant.text(text));
     const own = new AbortController();
     const stop = () => own.abort();
     signal.addEventListener('abort', stop);
     let source = false;
     try {
-      const task = option ? optionTask(area, option, attempt > 0) : todayTask(area, attempt > 0);
       const result = await ask({
-        messages: messages(task),
-        maxTokens: PIECE_TOKENS,
+        messages: messages(variantTask(area, option, area.today, attempt > 0)),
+        maxTokens: OPTION_TOKENS,
         signal: own.signal,
         onText: (text) => {
           reader.push(text);
-          if (attempt === 0 && !source && piece.html && SOURCE_CODE.test(piece.html)) {
+          if (attempt === 0 && !source && variant.html && SOURCE_CODE.test(variant.html)) {
             source = true;
             own.abort();
           }
@@ -197,77 +199,115 @@ async function draw({ query, files, styles, send, signal }) {
       calls.push({ kind, ms: result.ms, first: result.firstMs, finish: result.finish, chars: result.chars, ...tokens(result.usage) });
     } catch (error) {
       calls.push({ kind, failed: source ? 'source' : error.code ?? 'failed' });
-      if (!source) console.error('piece', kind, error.message);
+      if (!source) console.error('option', kind, error.message);
       if (attempt === 0 && !signal.aborted) {
         if (error.code === 'busy') await new Promise((resolve) => setTimeout(resolve, 1500));
         signal.removeEventListener('abort', stop);
-        return writePiece(area, option, 1);
+        return writeOption(area, option, 1);
       }
     } finally {
       signal.removeEventListener('abort', stop);
     }
-    const events = piece.result();
-    // An option that is source code a second time is left out; the element of today is needed
-    // for the page to be whole, so what a browser can read of it is kept.
-    if (!events || (option && SOURCE_CODE.test(events[0].html))) {
-      send({ t: 'miss', area: area.id, id: option ? option.id : 'keep' });
-      return;
+    const event = variant.result();
+    if (!event || SOURCE_CODE.test(event.html)) {
+      send({ t: 'miss', area: area.id, id: option.id });
+      return null;
     }
-    for (const event of events) {
-      if (event.html && SOURCE_CODE.test(event.html)) event.html = asHtml(event.html);
-      send(event);
-    }
-    if (option) area.drawn = (area.drawn ?? 0) + 1;
-    else area.kept = true;
+    send(event);
+    area.drawn = (area.drawn ?? 0) + 1;
+    return null;
   }
 
+  // The page is passed on in pieces of some size instead of token by token.
+  const flush = () => {
+    if (waiting) send({ t: 'page', text: waiting });
+    waiting = '';
+    flushed = Date.now();
+  };
+
+  /** The area is the element in this stretch of the page: say so, and have its options drawn. */
+  const place = (area, from, to) => {
+    if (area.today) return;
+    const html = markup(page.slice(from, to), AREA_CHARS + 1);
+    if (!/<[a-z]/i.test(html) || html.length > AREA_CHARS) return;
+    area.today = html;
+    marks[area.id] = at();
+    flush();
+    send({ t: 'place', area: area.id, from, to });
+    for (const option of area.options) jobs.push(writeOption(area, option));
+  };
+
+  // The plan says how the element of each area begins. As soon as that beginning stands in
+  // the page, the element is followed to its end, and then its options are drawn while the
+  // rest of the page is still being written.
+  const watch = () => {
+    for (const area of areas) {
+      if (area.today || !area.anchor || captures.some((c) => c.area === area)) continue;
+      let start = findStart(page, area.anchor, true);
+      // What follows the opening tag is often not as the plan foresaw. A tag with many classes
+      // is telling enough by itself.
+      if (start < 0 && area.opening) start = findStart(page, area.opening, true);
+      if (start < 0) continue;
+      const capture = { area, at: start, scan: new ElementScan() };
+      const end = capture.scan.push(page.slice(start));
+      if (end < 0) captures.push(capture);
+      else place(area, capture.at + capture.scan.from, capture.at + end);
+    }
+  };
+  const pageText = (text) => {
+    if (page.length >= LIMITS.page) return;
+    page += text;
+    waiting += text;
+    captures = captures.filter((capture) => {
+      const end = capture.scan.push(text);
+      if (end < 0) return true;
+      place(capture.area, capture.at + capture.scan.from, capture.at + end);
+      return false;
+    });
+    if (waiting.length >= 600 || Date.now() - flushed >= 120) {
+      watch();
+      flush();
+    }
+  };
+
+  const named = (rest) => areas.find((a) => a.wanted === slug(rest.split('|')[0]));
   const beginPage = () => {
     if (!areas.length) throw new Failure(502, 'model_error', 'The answer names no area');
     marks.plan = at();
-    send({ t: 'plan', areas: areas.map((area) => ({ id: area.id, options: area.options.map((o) => o.id) })), file: query.path });
+    send({ t: 'plan', areas: areas.map(({ id, label, decision, options }) => ({ id, label, ...(decision ? { decision } : {}), options: options.map((o) => o.id) })), file: query.path });
     const extra = css.replace(/\u0000/g, '').slice(0, LIMITS.css).trim();
     if (extra) send({ t: 'css', text: extra });
     phase = 'page';
   };
   const endPage = () => {
     if (phase !== 'page') return;
+    watch();
     flush();
+    captures = [];
+    // What the plan said of an area's beginning may be a little off: its opening tag alone will do now.
+    for (const area of areas) {
+      const found = area.today || !area.anchor ? null : findElement(page, area.anchor);
+      if (found) place(area, found.from, found.to);
+    }
     marks.page = at();
     send({ t: 'page-end' });
     phase = 'after';
-  };
-
-  // The page is passed on in pieces of some size instead of token by token.
-  let waiting = '';
-  let flushed = 0;
-  const flush = () => {
-    if (waiting) send({ t: 'page', text: waiting });
-    waiting = '';
-    flushed = Date.now();
-  };
-  const pageText = (text) => {
-    waiting += text;
-    if (waiting.length >= 600 || Date.now() - flushed >= 120) flush();
   };
 
   const reader = new Reader(
     (name, rest) => {
       if (phase === 'plan' || phase === 'css') {
         if (name === 'AREA' && phase === 'plan' && areas.length < LIMITS.areas) {
-          const area = planArea(rest, ids);
-          if (area) {
-            areas.push(area);
-            // The area is written while the page is: nothing waits for the other.
-            jobs.push(writePiece(area, null), ...area.options.map((option) => writePiece(area, option)));
-          }
+          const area = planChoice(rest, ids);
+          if (area) areas.push(area);
         } else if (name === 'CSS') phase = 'css';
         else if (name === 'PAGE') beginPage();
-      } else if (phase === 'page' && name === 'AREA') {
-        const area = areas.find((a) => a.wanted === slug(rest.split('|')[0]));
-        if (area && !placed.has(area.id)) {
-          placed.add(area.id);
-          pageText(`<pe-area id="${area.id}"></pe-area>\n`);
-        }
+      } else if (name === 'WHERE') {
+        endPage();
+        // An area that was not marked in the page is found by the opening tag of its element.
+        const area = named(rest);
+        const found = area && !area.today && rest.includes('|') ? findElement(page, rest.slice(rest.indexOf('|') + 1)) : null;
+        if (found) place(area, found.from, found.to);
       } else if (name === 'TITLE') {
         endPage();
         title = rest;
@@ -278,22 +318,44 @@ async function draw({ query, files, styles, send, signal }) {
     },
     (text) => {
       if (phase === 'css') css += css.length < LIMITS.css ? text : '';
-      else if (phase === 'page') {
-        if (pageChars < LIMITS.page) pageText(text);
-        pageChars += text.length;
-      }
+      else if (phase === 'page') pageText(text);
     },
   );
 
-  const result = await ask({ messages: messages(pageTask()), maxTokens: PAGE_TOKENS, signal, onText: (piece) => reader.push(piece) });
+  const result = await ask({ messages: messages(screenTask()), maxTokens: PAGE_TOKENS, signal, onText: (piece) => reader.push(piece) });
   reader.end();
   calls.unshift({ kind: 'page', ms: result.ms, first: result.firstMs, finish: result.finish, chars: result.chars, ...tokens(result.usage) });
-  if (phase === 'plan' || phase === 'css' || !pageChars) throw new Failure(502, 'model_error', 'The answer has no page');
+  if (phase === 'plan' || phase === 'css' || !page) throw new Failure(502, 'model_error', 'The answer has no page');
   endPage();
   send({ t: 'screen', title: clean(title, 48) ?? '', summary: clean(summary, 220) ?? '' });
+  const planned = [...areas];
+  if (!areas.some((area) => area.today) && !signal.aborted) {
+    // None of the areas that were planned is in the page as it was written (it was cut off before
+    // them, or they begin otherwise): the page is shown to the model, which names areas that are.
+    const lines = [];
+    const answer = new Reader((name, rest) => (name === 'AREA' ? lines.push(rest) : null), () => {});
+    try {
+      const found = await ask({ messages: messages(areasTask(page.slice(0, 24_000))), maxTokens: 500, signal, onText: (piece) => answer.push(piece) });
+      answer.end();
+      calls.push({ kind: 'areas', ms: found.ms, first: found.firstMs, finish: found.finish, chars: found.chars, ...tokens(found.usage) });
+    } catch (error) {
+      calls.push({ kind: 'areas', failed: error.code ?? 'failed' });
+    }
+    for (const line of lines.slice(0, LIMITS.areas)) {
+      const area = planChoice(line, ids);
+      if (area?.anchor) areas.push(area);
+    }
+    if (areas.length > planned.length) {
+      send({ t: 'plan', areas: areas.map(({ id, label, decision, options }) => ({ id, label, ...(decision ? { decision } : {}), options: options.map((o) => o.id) })), file: query.path });
+      for (const area of areas.slice(planned.length)) {
+        const found = findElement(page, area.anchor);
+        if (found) place(area, found.from, found.to);
+      }
+    }
+  }
+  for (const area of areas) if (!area.today) send({ t: 'miss', area: area.id, id: 'keep' });
   await Promise.all(jobs);
-  // An area that the page did not leave out is looked for in the page by the one who draws it.
-  if (!areas.some((area) => area.kept && area.drawn)) throw new Failure(502, 'model_error', 'The answer has no area that can be shown');
+  if (!areas.some((area) => area.today && area.drawn)) throw new Failure(502, 'model_error', 'The answer has no area that can be shown');
   return { ms: at(), marks, calls };
 }
 
@@ -340,14 +402,14 @@ export default async function handler(req, res) {
       res.write(`${JSON.stringify(event)}\n`);
     };
     const summary = await draw({ query, files, styles, send, signal: controller.signal });
-    console.log('draw', JSON.stringify({ path: query.path, ...summary }));
+    console.log('storyboard', JSON.stringify({ path: query.path, ...summary }));
     send({ t: 'done', model: MODEL, read: [...files, ...styles].map((f) => f.path), ...summary });
     return res.end();
   } catch (error) {
     const known = error instanceof Failure || error instanceof SolarError;
     const failure = known ? error : new Failure(500, 'internal', 'Something went wrong');
     if (!known) console.error(error);
-    else console.error('draw failed', failure.code, failure.message);
+    else console.error('storyboard failed', failure.code, failure.message);
     if (begun) {
       // The answer has begun and cannot be taken back, and the CDN keeps what was sent. The page
       // asks again under another address ("try") when an answer ends like this.

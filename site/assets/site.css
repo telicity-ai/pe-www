@@ -92,6 +92,7 @@ h1 .dimmer{color:#7c7c7c}
 .scr small{display:block;margin-top:1px;font:400 10.5px var(--mono);color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left}
 .scr.on{background:rgba(255,255,255,.065);border-color:var(--line);color:var(--fg)}
 .scr b{float:right;margin-left:6px;font:400 10.5px var(--mono);color:var(--dim)}
+.scr b.has{color:var(--pink)}
 .scr b.spin{width:10px;height:10px;margin-top:5px;border-radius:50%;border:1.5px solid var(--pink);border-right-color:transparent;animation:spin .7s linear infinite}
 .stk{display:flex;flex-wrap:wrap;gap:5px;margin:0 6px}
 .stk span{font:400 10.5px var(--mono);color:var(--mut);border:1px solid var(--line);border-radius:5px;padding:1px 7px}
