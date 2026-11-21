@@ -103,6 +103,17 @@ function repair(root) {
     el.setAttribute('class', list.join(' '));
   }
   const slots = root.querySelectorAll('pe-area').length;
+  // The pane that holds the whole screen, set in a row without what makes it grow (a sidebar
+  // inset's flex-1), would shrink to its content and leave the page standing on the left.
+  for (const el of slots ? root.querySelectorAll('div, main, section, article') : []) {
+    const parent = el.parentElement;
+    if (!parent || el.querySelectorAll('pe-area').length !== slots) continue;
+    const around = classes(parent);
+    if (!has(around, /^flex$/) || has(around, /^flex-col/)) continue;
+    const list = classes(el);
+    if (has(list, /^(?:flex-1|flex-auto|grow|basis-|w-|absolute$|fixed$)/)) continue;
+    el.setAttribute('class', [...list, 'flex-1', 'min-w-0'].join(' '));
+  }
   for (const el of root.querySelectorAll('[class*="max-w-"]')) {
     const list = classes(el);
     const parent = el.parentElement;
