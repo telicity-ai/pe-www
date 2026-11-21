@@ -280,16 +280,32 @@ function bridge() {
 
   let view = { open: null, chosen: [] };
   let last = '';
+  // Where the open area was when it was opened, in the coordinates of the document. Trying an
+  // option changes the area's size; its dot, and the options that stand by it outside this
+  // frame, must not follow, or they slip away from under the pointer that is trying the option.
+  let held = null;
+  let size = '';
   function draw() {
     const width = document.documentElement.clientWidth;
     const height = document.documentElement.clientHeight;
+    if (size !== `${width} ${height}`) {
+      // The page is laid out anew at another size: where things were no longer says where they are.
+      size = `${width} ${height}`;
+      held = null;
+    }
     const rects = {};
+    let live = null;
     for (const area of areas) {
-      const r = rect(area.id);
+      let r = rect(area.id);
       const dot = dots.get(area.id);
       if (!r) {
         dot.style.display = 'none';
         continue;
+      }
+      if (area.id === view.open) {
+        live = r;
+        if (held?.id !== area.id) held = { id: area.id, left: r.left + window.scrollX, top: r.top + window.scrollY, right: r.right + window.scrollX, bottom: r.bottom + window.scrollY };
+        r = { left: held.left - window.scrollX, top: held.top - window.scrollY, right: held.right - window.scrollX, bottom: held.bottom - window.scrollY };
       }
       rects[area.id] = r;
       const x = Math.max(4, Math.min(r.right - 10, width - 24));
@@ -301,7 +317,8 @@ function bridge() {
       dot.className = `${view.chosen.includes(area.id) ? 'done' : ''} ${view.open === area.id ? 'open' : ''}`;
       rects[area.id].dot = { left: x, top: y, right: x + 20, bottom: y + 20 };
     }
-    const open = view.open && rects[view.open];
+    // The frame around the open area follows the area as it is, also while an option is tried.
+    const open = live;
     outline.style.display = open ? 'block' : 'none';
     if (open) {
       outline.style.left = `${open.left - 5}px`;
@@ -322,7 +339,10 @@ function bridge() {
     if (event.source !== parent || !message || message.pe !== config.token) return;
     if (message.type === 'apply') apply(message.choices);
     if (message.type === 'set') replace(message);
-    if (message.type === 'view') view = { open: message.open, chosen: message.chosen };
+    if (message.type === 'view') {
+      if (message.open !== view.open) held = null;
+      view = { open: message.open, chosen: message.chosen };
+    }
     if (message.type === 'focus') dots.get(message.id)?.focus();
   });
   document.addEventListener('keydown', (event) => {
@@ -500,18 +520,21 @@ export class Preview {
     this.post({ type: 'focus', id });
   }
 
-  /** The half of the page an area lies in, 'left' or 'right'; null when it spans the middle or is not known yet. */
-  half(id) {
-    const rect = this.layout?.rects?.[id];
-    if (!rect || !this.layout.width) return null;
-    const middle = (rect.left + rect.right) / 2 / this.layout.width;
-    return middle < 0.42 ? 'left' : middle > 0.58 ? 'right' : null;
+  /** Where an area and its dot are, in the coordinates of this page. */
+  place(id) {
+    const rects = this.layout?.rects?.[id];
+    if (!rects || !this.frame) return null;
+    const at = this.frame.getBoundingClientRect();
+    const k = this.scale;
+    const shift = (r) => ({ left: r.left * k + at.left, top: r.top * k + at.top, right: r.right * k + at.left, bottom: r.bottom * k + at.top });
+    return { area: shift(rects), dot: shift(rects.dot), port: at };
   }
 }
 
 /**
  * One option, drawn small: the whole page with that option in place, moved and scaled so that
- * the area fills the box. `onFit` is called when the box has changed its height. Returns a
+ * the area fills the box. `onFit(height)` is called when the box has changed its height, with
+ * the height the area has with that option, in the page's own pixels. Returns a
  * function that removes it.
  */
 export function mountThumb(box, analysis, assets, areaId, choices, width, onFit) {
@@ -544,7 +567,7 @@ export function mountThumb(box, analysis, assets, areaId, choices, width, onFit)
     const y = (h * scale < tall ? (tall - h * scale) / 2 : 0) - r.top * scale;
     frame.style.transform = `translate(${x}px,${y}px) scale(${scale})`;
     frame.style.visibility = '';
-    onFit?.();
+    onFit?.(rect.bottom - rect.top);
   };
   window.addEventListener('message', listen);
   box.prepend(frame);

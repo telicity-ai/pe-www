@@ -11,7 +11,6 @@ const $ = (id) => document.getElementById(id);
 const frame = $('frame');
 const pop = $('pop');
 const stage = $('stage');
-const rail = $('rail');
 const textarea = $('prompt');
 
 const ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
@@ -24,7 +23,6 @@ const state = {
   project: null,
   screen: null,
   open: null, // id of the area whose options are showing
-  side: 'left', // the panel over which they show
   preview: null, // { area, option } while an option is pointed at
   run: 0, // increases with every analysis; an answer for an older run is dropped
   retry: null,
@@ -77,6 +75,7 @@ function shown() {
 }
 
 const preview = new Preview(frame, {
+  layout: placePop,
   dot: ({ id, keyboard }) => openArea(state.open === id ? null : id, keyboard),
   away: closePop,
   escape: () => {
@@ -93,31 +92,26 @@ function syncStage() {
 }
 
 let thumbs = [];
+let tallest = 0; // the height of the open area with its tallest option, in the page's own pixels
 function dropThumbs() {
   for (const remove of thumbs) remove();
   thumbs = [];
+  tallest = 0;
 }
 
-/**
- * The options of the open area stand in a window of their own over one of the panels beside the
- * page: the one on the side the area is on. The window is placed once, when the area is opened,
- * and stays there. Over the page it would follow the part it changes, and slip away from under
- * the pointer as an option is tried.
- */
 function renderPop() {
   const screen = state.screen;
   const area = screen?.analysis.areas.find((a) => a.id === state.open);
   dropThumbs();
-  rail.classList.toggle('choosing', Boolean(area));
   if (!area) {
     pop.className = 'pop';
     pop.innerHTML = '';
     return;
   }
   // Only pictures: what an option is called and why one is suggested are read by pointing at it
-  // (and by a screen reader).
+  // (and by a screen reader), so that the options take as little of the page as possible.
   pop.setAttribute('aria-label', area.label);
-  pop.innerHTML = `<div class="pop-h"><span>${esc(area.label)}</span><button type="button" class="pop-x" data-close aria-label="${esc(t('pop.close'))}" title="${esc(t('pop.close'))}">×</button></div><div class="pop-o">${area.options.map((option) => {
+  pop.innerHTML = `<div class="pop-h">${esc(area.label)}</div><div class="pop-o">${area.options.map((option) => {
     const selected = screen.choices[area.id] === option.id;
     const reason = option.suggested ? `${t('pop.suggested')}${option.because ? `: ${option.because}` : ''}` : '';
     const name = reason ? `${option.label}. ${reason}` : option.label;
@@ -125,13 +119,16 @@ function renderPop() {
       option.suggested ? `<i class="star" title="${esc(reason)}">★</i>` : ''
     }<div class="th">${option.keep ? `<span class="now">${esc(t('pop.now'))}</span>` : ''}</div></button>`;
   }).join('')}</div>`;
-  pop.className = `pop show${state.side === 'right' ? ' right' : ''}`;
-  pop.scrollTop = 0;
+  pop.className = 'pop show';
+  pop.style.visibility = 'hidden';
   // Each picture is the page itself with that option in place, at the width the page has now.
   const width = preview.width || 1024;
   for (const option of area.options) {
     const box = pop.querySelector(`[data-option="${CSS.escape(option.id)}"] .th`);
-    thumbs.push(mountThumb(box, screen.analysis, screen.assets, area.id, { ...screen.choices, [area.id]: option.id }, width));
+    thumbs.push(mountThumb(box, screen.analysis, screen.assets, area.id, { ...screen.choices, [area.id]: option.id }, width, (height) => {
+      tallest = Math.max(tallest, height);
+      placePop();
+    }));
   }
 }
 
@@ -144,13 +141,72 @@ function markSelection() {
   }
 }
 
+/**
+ * Puts the options where they do not cover the part of the page they change. In this order:
+ * above that part, below it, beside the page (in a column), and only when none of these has
+ * room, along the edge of the stage that is farther from the dot.
+ *
+ * The part is taken as it was when it was opened (the frame holds that still) and as tall as
+ * its tallest option makes it: the options stay where they are while one of them is tried, and
+ * out of the way of what trying it changes.
+ */
+function placePop() {
+  if (!state.open) return;
+  const at = preview.place(state.open);
+  if (!at) {
+    pop.style.visibility = 'hidden';
+    return;
+  }
+  const outer = stage.getBoundingClientRect();
+  const { area: box, dot, port } = at;
+  const top = Math.max(box.top, port.top);
+  const bottom = Math.min(Math.max(box.bottom, box.top + tallest * preview.scale), port.bottom);
+  if (bottom <= top) {
+    pop.style.visibility = 'hidden';
+    return;
+  }
+  pop.style.visibility = '';
+  const GAP = 14;
+  const EDGE = 6;
+  const clamp = (value, min, max) => Math.max(min, Math.min(value, max));
+
+  const set = (left, y) => {
+    pop.style.left = `${left}px`;
+    pop.style.top = `${y}px`;
+  };
+  const beside = (room, leftOf) => {
+    pop.classList.add('pop--col');
+    const width = pop.offsetWidth;
+    const height = pop.offsetHeight;
+    if (width > room - 2 * EDGE || height > outer.height - 2 * EDGE) return false;
+    set(leftOf ? port.left - outer.left - EDGE - width : port.right - outer.left + EDGE, clamp(dot.top - outer.top - 10, EDGE, outer.height - height - EDGE));
+    return true;
+  };
+
+  // A narrow page (a phone) leaves room in the stage itself: the options stand beside it.
+  if (beside(outer.right - port.right, false) || beside(port.left - outer.left, true)) return;
+
+  pop.classList.remove('pop--col');
+  const width = pop.offsetWidth;
+  const height = pop.offsetHeight;
+  const left = clamp(box.right - outer.left - width + 8, EDGE, Math.max(EDGE, outer.width - width - EDGE));
+  if (height <= top - outer.top - GAP - EDGE) return set(left, top - outer.top - GAP - height);
+  if (height <= outer.bottom - bottom - GAP - EDGE) return set(left, bottom - outer.top + GAP);
+
+  // The part fills the view: stand beside the page, over the list of screens.
+  if (beside(port.left - stage.parentElement.getBoundingClientRect().left, true)) return;
+
+  pop.classList.remove('pop--col');
+  const dotHigh = (dot.top + dot.bottom) / 2 < outer.top + outer.height / 2;
+  set(left, dotHigh ? Math.max(EDGE, outer.height - pop.offsetHeight - EDGE) : EDGE);
+}
+
 function openArea(id, fromKeyboard = false) {
-  // The side is chosen where the area is when it is opened, and kept while it is open.
-  if (id && id !== state.open) state.side = preview.half(id) ?? 'left';
   state.open = id;
   state.preview = null;
   syncStage();
   renderPop();
+  placePop();
   renderDiff();
   if (id && fromKeyboard) pop.querySelector('.opt')?.focus();
 }
@@ -540,13 +596,6 @@ pop.addEventListener('focusin', (event) => pointAt(event.target.closest('.opt'))
 pop.addEventListener('mouseleave', pointAway);
 pop.addEventListener('focusout', (event) => { if (!pop.contains(event.relatedTarget)) pointAway(); });
 pop.addEventListener('click', (event) => {
-  if (event.target.closest('[data-close]')) {
-    event.stopPropagation();
-    const id = state.open;
-    closePop();
-    if (id && event.detail === 0) preview.focusDot(id);
-    return;
-  }
   const option = event.target.closest('.opt');
   if (!option || !state.open) return;
   event.stopPropagation();
@@ -566,6 +615,7 @@ document.addEventListener('keydown', (event) => {
   closePop();
   preview.focusDot(id);
 });
+window.addEventListener('resize', placePop);
 
 function setDevice(device) {
   for (const button of $('seg').children) button.classList.toggle('on', button.dataset.w === device);
@@ -645,6 +695,7 @@ for (const button of document.querySelectorAll('[data-lang]')) {
       state.preview = null;
       renderAround();
       renderPop();
+      if (open) placePop();
     }
     if (!$('ov').hidden && step) setStep(step.name, step.values);
   });
