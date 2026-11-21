@@ -102,7 +102,7 @@ h1 .dimmer{color:#7c7c7c}
 .stage.phone .frame{width:min(390px,100%)}
 
 /* dots and options */
-.pop{position:fixed;inset:auto;left:0;top:0;margin:0;z-index:2147483000;display:none;overflow:visible;color:var(--fg);padding:10px;max-width:calc(100vw - 16px);background:#1b1b1d;border:1px solid rgba(255,255,255,.2);border-radius:14px;box-shadow:0 20px 56px rgba(0,0,0,.72)}
+.pop{position:fixed;inset:auto;left:0;top:0;margin:0;z-index:2147483000;display:none;overflow:visible;color:var(--fg);padding:10px;max-width:calc(100vw - 16px);background:#1b1b1d;border:1px solid rgba(255,255,255,.2);border-radius:14px;box-shadow:0 4px 12px rgba(0,0,0,.28)}
 .pop.show{display:block}
 .pop-h{margin:0 2px 8px;font-size:12.5px;font-weight:500;color:var(--fg)}
 .pop--col{max-width:none}
