@@ -3,7 +3,7 @@ import { API_BASE } from './config.js';
 import { RepoError, collectFiles, parseRepo, scanRepo } from './github.js';
 import { iconsIn, loadIcons } from './icons.js';
 import { getLang, initLang, setLang, t } from './i18n.js';
-import { Preview, mountThumb } from './preview.js';
+import { Preview, activeAreas, mountThumb } from './preview.js';
 import { buildProjectPrompt, diffPrompt, mergePrompt } from './prompt.js';
 import { sampleProject } from './sample.js';
 
@@ -87,10 +87,13 @@ function prepare(screen, choices = {}) {
 
 /** The screens that the prompt speaks of: those with a pick, or else the one that is shown. `tried` stands in for the picks of the screen that is shown. */
 function spoken(project, tried = null) {
-  const choicesOf = (screen) => (tried && screen === state.screen ? tried : screen.choices ?? {});
-  const picked = project.screens.filter((s) => s.analysis && Object.keys(choicesOf(s)).length);
-  const list = picked.length || !state.screen?.analysis || !project.screens.includes(state.screen) ? picked : [state.screen];
-  return list.map((screen) => ({ analysis: screen.analysis, choices: choicesOf(screen) }));
+  const screens = project.screens.filter((screen) => screen.analysis).map((screen) => {
+    const choices = screen === state.screen && tried ? tried : screen.choices ?? {};
+    const areas = activeAreas(screen.analysis, choices);
+    return { screen, analysis: { ...screen.analysis, areas }, choices };
+  });
+  const picked = screens.filter(({ analysis, choices }) => analysis.areas.some((area) => choices[area.id]));
+  return picked.length ? picked : screens.filter(({ screen }) => screen === state.screen);
 }
 const promptOf = (project, tried = null) => buildProjectPrompt(spoken(project, tried), getLang());
 
@@ -106,7 +109,10 @@ function rewrite(project = state.project) {
   project.generated = after;
   if (project.restored) {
     // What was typed into the prompt on an earlier visit belongs to the prompt as it then was.
-    if (project.restored.text && project.restored.generated === after) project.text = project.restored.text;
+    const { text, generated } = project.restored;
+    if (typeof text === 'string' && typeof generated === 'string') {
+      project.text = generated === after ? text : mergePrompt(text, generated, after);
+    }
     project.restored = null;
   }
   save(project);
@@ -230,7 +236,7 @@ function placePop() {
   const H = document.documentElement.clientHeight;
   let at = preview.place(state.open);
   if (state.fromToolbar && (!at || at.dot.bottom <= 0 || at.dot.top >= H || at.dot.right <= 0 || at.dot.left >= W)) {
-    // The area can be off screen or absent from the selected version of its parent.
+    // Keep the choices reachable from the toolbar when the area is off screen.
     const trigger = toolbarButton(state.open)?.getBoundingClientRect();
     if (trigger) at = { area: trigger, dot: trigger, port: trigger };
   }
@@ -303,6 +309,7 @@ function openArea(id, fromKeyboard = false, fromToolbar = false) {
   state.preview = null;
   syncStage();
   renderToolbar();
+  renderRail();
   renderPop();
   placePop();
   renderDiff();
@@ -325,6 +332,17 @@ function dismissPop() {
 
 // ---------- around it ----------
 
+function progress(screen) {
+  if (!screen?.analysis) return { areas: [], chosen: 0, previewing: false };
+  const saved = activeAreas(screen.analysis, screen.choices);
+  const trying = state.preview && screen === state.screen;
+  const areas = trying ? activeAreas(screen.analysis, shown()) : saved;
+  // Hover changes which controls are present. Only a click records a choice.
+  const chosen = areas.filter((area) => screen.choices[area.id]).length;
+  const previewing = Boolean(trying && (areas.length !== saved.length || areas.some((area, i) => area !== saved[i])));
+  return { areas, chosen, previewing };
+}
+
 function renderToolbar() {
   const project = state.project;
   const repo = project.repo;
@@ -334,23 +352,29 @@ function renderToolbar() {
   // The choice between light and dark is offered when the project's styles have both.
   $('scheme').hidden = !state.screen?.assets?.dark;
   for (const button of $('scheme').children) button.classList.toggle('on', button.dataset.s === state.scheme);
-  const areas = state.screen?.analysis?.areas ?? [];
-  const chosen = areas.filter((a) => state.screen.choices[a.id]).length;
-  paint($('pips'), areas.map((a) => `<button type="button" data-area="${esc(a.id)}" class="${state.screen.choices[a.id] ? 'f' : ''}" aria-label="${esc(a.label)}" title="${esc(a.label)}" aria-controls="pop" aria-expanded="${a.id === state.open}"></button>`).join(''));
+  const { areas, chosen, previewing } = progress(state.screen);
+  paint($('pips'), areas.map((a) => {
+    const pick = a.options.find((option) => option.id === state.screen.choices[a.id]);
+    const label = pick ? `${a.label} · ${pick.label || t('pop.keep')}` : a.label;
+    return `<button type="button" data-area="${esc(a.id)}" class="${pick ? 'f' : ''}" aria-label="${esc(label)}" title="${esc(label)}" aria-controls="pop" aria-expanded="${a.id === state.open}"></button>`;
+  }).join(''));
   // While a screen is still being written, the toolbar says what is on its way.
   const writing = state.screen?.status === 'loading';
   $('pcount').classList.toggle('busy', writing);
-  if (writing) $('pcount').textContent = t(state.screen.analysis?.pageDone ? 'pg.options' : 'pg.drawing');
-  else $('pcount').textContent = areas.length ? t('pg.chosen', { n: chosen, m: areas.length }) : '';
+  const count = areas.length ? t(previewing ? 'pg.previewChosen' : 'pg.chosen', { n: chosen, m: areas.length })
+    : writing ? t(state.screen.analysis?.pageDone ? 'pg.options' : 'pg.drawing') : '';
+  if ($('pcount').textContent !== count) $('pcount').textContent = count;
 }
 
 function renderRail() {
   const project = state.project;
-  $('screens').innerHTML = project.screens.map((screen) => {
-    const badge = screen.status === 'loading' ? '<b class="spin"></b>' : screen.analysis ? `<b${Object.keys(screen.choices ?? {}).length ? ' class="has"' : ''}>${Object.keys(screen.choices ?? {}).length ? `${Object.keys(screen.choices).length}/` : ''}${screen.analysis.areas.length}</b>` : '';
-    return `<button type="button" class="scr${screen === state.screen ? ' on' : ''}" data-screen="${esc(screen.id)}" title="${esc(screen.path)}">${badge}${esc(screen.title)}<small>${esc(screen.path)}</small></button>`;
-  }).join('');
-  $('stack').innerHTML = project.stack.map((item) => `<span>${esc(item)}</span>`).join('');
+  paint($('screens'), project.screens.map((screen) => {
+    const { areas, chosen } = progress(screen);
+    const spinner = screen.status === 'loading' ? '<b class="spin"></b>' : '';
+    const badge = areas.length ? `<b${chosen ? ' class="has"' : ''}>${chosen}/${areas.length}</b>` : '';
+    return `<button type="button" class="scr${screen === state.screen ? ' on' : ''}" data-screen="${esc(screen.id)}" title="${esc(screen.path)}">${badge}${spinner}${esc(screen.title)}<small>${esc(screen.path)}</small></button>`;
+  }).join(''));
+  paint($('stack'), project.stack.map((item) => `<span>${esc(item)}</span>`).join(''));
 }
 
 function renderDiff() {
@@ -709,7 +733,7 @@ async function analyzeRepo(input) {
     $('rname').textContent = `${scan.repo.owner}/${scan.repo.name}`;
     $('rsub').textContent = scan.repo.sub ? `/${scan.repo.sub}` : '';
     $('rtag').hidden = true;
-    $('pips').innerHTML = '';
+    paint($('pips'), '');
     $('pcount').textContent = '';
     renderRail();
     const url = new URL(location.href);
@@ -767,12 +791,16 @@ function pointAt(option) {
   if (state.preview?.option === option.dataset.option) return;
   state.preview = { area: state.open, option: option.dataset.option };
   syncStage();
+  renderToolbar();
+  renderRail();
   renderDiff();
 }
 function pointAway() {
   if (!state.preview) return;
   state.preview = null;
   syncStage();
+  renderToolbar();
+  renderRail();
   renderDiff();
 }
 pop.addEventListener('mouseover', (event) => pointAt(event.target.closest('.opt')));

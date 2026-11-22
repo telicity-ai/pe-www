@@ -152,15 +152,19 @@ function repair(root, decision) {
  * Markup from an analysis, reduced to what is safe to draw. A <pe-area id> becomes the comment
  * <!--pe-area:id-->, which marks a place without being an element that styles could count.
  */
-export function sanitize(html, decision) {
+export function sanitize(html, decision, slots) {
   const doc = parseMarkup(html);
   cleanElement(doc.body);
   for (const svg of doc.body.querySelectorAll('svg[data-icon]')) drawIcon(svg);
   repair(doc.body, decision);
   for (const slot of [...doc.body.querySelectorAll('pe-area')]) {
     const id = (slot.getAttribute('id') ?? '').replace(/[^a-z0-9-]/gi, '');
-    if (id) slot.replaceWith(doc.createComment(`pe-area:${id}`));
-    else slot.remove();
+    if (!id) {
+      slot.remove();
+      continue;
+    }
+    if (doc.body.contains(slot)) slots?.push(id);
+    slot.replaceWith(doc.createComment(`pe-area:${id}`));
   }
   return doc.body.innerHTML;
 }
@@ -224,8 +228,24 @@ export function placeDot(left, top, width, height, occupied) {
   return { ...best, right: best.left + diameter, bottom: best.top + diameter };
 }
 
+// Follow the slots in the chosen version of each area, inserting parents before their children.
+// The frame and its surrounding controls use the same result, including for untouched areas.
+function resolveOptions(layout, choices) {
+  const placed = new Map();
+  function visit(id) {
+    if (placed.has(id)) return;
+    const area = layout.areas.find((entry) => entry.id === id);
+    if (!area?.options.length) return;
+    const option = area.options.find((entry) => entry.id === choices[id]) ?? area.options[0];
+    placed.set(id, option.id);
+    option.slots.forEach(visit);
+  }
+  layout.roots.forEach(visit);
+  return placed;
+}
+
 /** Runs inside the frame. It moves options into their places, draws the dots, and reports where things are. */
-function bridge(placeDot) {
+function bridge(placeDot, resolveOptions) {
   const config = window.__PE__;
   const say = (message) => parent.postMessage({ pe: config.token, ...message }, '*');
   const store = document.getElementById('pe-store');
@@ -233,7 +253,7 @@ function bridge(placeDot) {
   for (const box of store.children) boxes.set(box.getAttribute('data-pe-option'), box);
   const key = (area, option) => `${area} ${option}`;
   const placed = new Map();
-  let areas = config.areas;
+  let layout = config.layout;
 
   function marker(id) {
     const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_COMMENT);
@@ -246,19 +266,12 @@ function bridge(placeDot) {
   function apply(choices) {
     for (const [id, was] of placed) boxes.get(key(id, was.option))?.append(...was.nodes);
     placed.clear();
-    // An option may hold the place of another area, so places appear as options are put in.
-    let waiting = areas.map((a) => a.id);
-    for (let pass = 0; pass < 6 && waiting.length; pass += 1) {
-      waiting = waiting.filter((id) => {
-        const at = marker(id);
-        if (!at) return true;
-        const area = areas.find((a) => a.id === id);
-        const option = area.options.includes(choices[id]) ? choices[id] : area.options[0];
-        const nodes = [...(boxes.get(key(id, option))?.childNodes ?? [])];
-        at.after(...nodes);
-        placed.set(id, { option, nodes });
-        return false;
-      });
+    for (const [id, option] of resolveOptions(layout, choices)) {
+      const at = marker(id);
+      if (!at) continue;
+      const nodes = [...boxes.get(key(id, option)).childNodes];
+      at.after(...nodes);
+      placed.set(id, { option, nodes });
     }
   }
 
@@ -459,6 +472,7 @@ function bridge(placeDot) {
   const outline = layer.querySelector('div');
   const dots = new Map();
   function syncDots() {
+    const { areas } = layout;
     for (const [id, dot] of dots) {
       if (areas.some((a) => a.id === id)) continue;
       dot.remove();
@@ -491,7 +505,7 @@ function bridge(placeDot) {
     store.innerHTML = message.store;
     boxes.clear();
     for (const box of store.children) boxes.set(box.getAttribute('data-pe-option'), box);
-    areas = message.areas;
+    layout = message.layout;
     syncDots();
     apply(message.choices);
     window.scrollTo(0, y);
@@ -506,6 +520,7 @@ function bridge(placeDot) {
   let size = '';
   let previous = {};
   function draw() {
+    const { areas } = layout;
     const width = document.documentElement.clientWidth;
     const height = document.documentElement.clientHeight;
     if (size !== `${width} ${height}`) {
@@ -599,26 +614,41 @@ function bridge(placeDot) {
   say({ type: 'ready' });
 }
 
-const BRIDGE = `(${bridge.toString()})(${placeDot.toString()});`;
+const BRIDGE = `(${bridge.toString()})(${placeDot.toString()},${resolveOptions.toString()});`;
+const layouts = new WeakMap();
 
 /** What a frame shows of an analysis: the page, the options kept aside, and the areas they belong to. */
 function documentParts(analysis) {
-  return {
-    page: sanitize(analysis.page),
-    store: analysis.areas.flatMap((area) => area.options.map((option) => (
-      `<div data-pe-option="${area.id} ${option.id}">${sanitize(option.html, option.keep ? area.decision : null)}</div>`
-    ))).join(''),
-    areas: analysis.areas.map((area) => ({ id: area.id, label: area.label, options: area.options.map((o) => o.id) })),
-  };
+  const roots = [];
+  const page = sanitize(analysis.page, null, roots);
+  const store = [];
+  const areas = analysis.areas.map((area) => {
+    const options = area.options.map((option) => {
+      const slots = [];
+      const html = sanitize(option.html, option.keep ? area.decision : null, slots);
+      store.push(`<div data-pe-option="${area.id} ${option.id}">${html}</div>`);
+      return { id: option.id, slots };
+    });
+    return { id: area.id, label: area.label, options };
+  });
+  const layout = { roots, areas };
+  layouts.set(analysis, layout);
+  return { page, store: store.join(''), layout };
+}
+
+export function activeAreas(analysis, choices) {
+  if (!analysis.areas.length) return [];
+  const layout = layouts.get(analysis) ?? documentParts(analysis).layout;
+  const active = resolveOptions(layout, choices);
+  return analysis.areas.filter((area) => active.has(area.id));
 }
 
 /**
  * The whole document of a frame. `assets` are the project's stylesheets and how to treat them;
  * `choices` says which option stands in each area; `focus` makes it a thumbnail of one area.
  */
-export function buildDocument(analysis, assets, { token, choices = {}, focus = null }) {
+export function buildDocument(analysis, assets, { token, choices = {}, focus = null, parts = documentParts(analysis) }) {
   const n = nonce();
-  const parts = documentParts(analysis);
   const csp = [
     "default-src 'none'",
     `script-src 'nonce-${n}' ${TAILWIND}`,
@@ -634,7 +664,7 @@ export function buildDocument(analysis, assets, { token, choices = {}, focus = n
   const styles = assets.tailwind
     ? `<script nonce="${n}" src="${TAILWIND}" crossorigin="anonymous"></script><style type="text/tailwindcss">${sheet}</style>`
     : `<style>${sheet}</style>`;
-  const config = { token, focus, choices, areas: parts.areas };
+  const config = { token, focus, choices, layout: parts.layout };
   // A project with a dark variant is shown dark unless light was asked for.
   const root = assets.dark && assets.scheme !== 'light' ? ' class="dark" data-theme="dark" style="color-scheme:dark"' : '';
   return `<!doctype html><html lang="en"${root}><head><meta charset="utf-8">`
@@ -687,12 +717,14 @@ export class Preview {
         // Once: draw again with the project's stylesheets reduced to what Tailwind can read.
         if (this.loaded && this.loaded.assets.tailwind === true) {
           this.loaded.assets.tailwind = 'plain';
+          const view = this.pending;
           this.load(this.loaded.analysis, this.loaded.assets, this.loaded.choices, this.loaded.title);
-          this.post(this.pending ?? { type: 'view', open: null, chosen: [] });
+          this.pending = view;
         }
       } else if (message.type === 'ready') {
         this.ready = true;
-        if (this.changed) this.post(this.changed);
+        if (this.changed) this.post({ ...this.changed, choices: this.loaded.choices });
+        else this.post({ type: 'apply', choices: this.loaded.choices });
         this.changed = null;
         this.post(this.pending ?? { type: 'view', open: null, chosen: [] });
         this.handlers.ready?.();
@@ -707,9 +739,10 @@ export class Preview {
     this.pending = null;
     this.ready = false;
     this.changed = null;
-    this.drawn = JSON.stringify(documentParts(analysis));
+    const parts = documentParts(analysis);
+    this.drawn = JSON.stringify(parts);
     const frame = makeFrame(title);
-    frame.srcdoc = buildDocument(analysis, assets, { token: this.token, choices });
+    frame.srcdoc = buildDocument(analysis, assets, { token: this.token, choices, parts });
     this.holder.replaceChildren(frame);
     this.frame = frame;
     this.fit();
@@ -757,7 +790,9 @@ export class Preview {
   }
 
   apply(choices) {
-    this.post({ type: 'apply', choices });
+    if (!this.loaded) return;
+    this.loaded.choices = choices;
+    if (this.ready) this.post({ type: 'apply', choices });
   }
 
   view(open, chosen) {

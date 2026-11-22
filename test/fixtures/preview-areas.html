@@ -1,0 +1,29 @@
+<!doctype html>
+<meta charset="utf-8">
+<output></output>
+<script type="module">
+import { activeAreas } from '../../site/assets/preview.js';
+
+const slot = (id) => `<pe-area id="${id}"></pe-area>`;
+const area = (id, ...options) => ({ id, options });
+const option = (id, html) => ({ id, html });
+const analysis = {
+  page: `<main>${slot('list')}<footer style="margin-top:120vh">${slot('footer')}</footer></main>`,
+  areas: [
+    area('filters', option('keep', slot('sort')), option('chips', '<p>Chips</p>')),
+    area('list', option('keep', slot('filters')), option('cards', '<p>Cards</p>')),
+    area('sort', option('keep', '<select></select>')),
+    area('footer', option('keep', '<button>Next</button>')),
+  ],
+};
+const failures = [];
+function check(choices, ids) {
+  const actual = activeAreas(analysis, choices).map((entry) => entry.id).join(' ');
+  if (actual !== ids) failures.push(`Expected ${ids}, got ${actual}`);
+}
+check({}, 'filters list sort footer');
+check({ list: 'cards', filters: 'chips' }, 'list footer');
+check({ list: 'keep', filters: 'chips' }, 'filters list footer');
+check({ list: 'unknown' }, 'filters list sort footer');
+document.querySelector('output').textContent = failures.join(', ') || 'passed';
+</script>
