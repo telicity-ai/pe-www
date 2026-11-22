@@ -1,0 +1,30 @@
+<!doctype html>
+<meta charset="utf-8">
+<div id="stage"></div>
+<output></output>
+<script type="module">
+import { sanitize } from '../../site/assets/preview.js';
+
+const stage = document.querySelector('#stage');
+const gap = '<div data-slot="sidebar-gap"></div>';
+const panel = (body) => `<div data-slot="sidebar-container"><div data-sidebar="sidebar">${body}</div></div>`;
+const pane = (alignment) => `<div class="flex flex-col flex-1 ${alignment}"><div class="flex flex-col items-center text-center">Start a project</div></div>`;
+const failures = [];
+function check(condition, message) {
+  if (!condition) failures.push(message);
+}
+
+stage.innerHTML = sanitize(gap + panel('') + '<main>Home</main>');
+check(stage.children.length === 1 && stage.firstElementChild.matches('main'), 'An omitted sidebar still reserves space');
+for (const body of ['<button>Projects</button>', '<pe-area id="projects"></pe-area>']) {
+  stage.innerHTML = sanitize(gap + panel(body) + '<main>Home</main>');
+  check(stage.querySelector('[data-slot="sidebar-gap"]') && stage.querySelector('[data-slot="sidebar-container"]'), 'A populated sidebar lost its space');
+}
+stage.innerHTML = sanitize(pane(''), 'nothing-to-show');
+check(stage.firstElementChild.classList.contains('justify-center'), 'The empty state sits at the top');
+stage.innerHTML = sanitize(pane('justify-start'), 'nothing-to-show');
+check(!stage.firstElementChild.classList.contains('justify-center'), 'Explicit alignment was overridden');
+stage.innerHTML = sanitize(pane(''), 'show-a-collection');
+check(!stage.firstElementChild.classList.contains('justify-center'), 'An unrelated screen was centered');
+document.querySelector('output').textContent = failures.join(', ') || 'passed';
+</script>

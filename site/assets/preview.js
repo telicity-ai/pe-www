@@ -87,10 +87,30 @@ const ALIGNED = /^(?:items|place-items|justify-items)-/;
  * What a model tends to drop when it copies markup: a button's size classes (it then touches its
  * own border), and the margin that centers a column of limited width.
  */
-function repair(root) {
-  // A frame drawn without its content (a sidebar with nothing in it) would only push the screen aside.
-  for (const el of root.querySelectorAll('aside, nav, [data-slot="sidebar"], [data-sidebar="sidebar"]')) {
-    if (!el.textContent.trim() && !el.querySelector('svg, input, button, [data-picture]')) el.remove();
+function repair(root, decision) {
+  const sidebar = 'aside, nav, [data-slot="sidebar"], [data-slot="sidebar-container"], [data-sidebar="sidebar"]';
+  const hasContent = (el) => el.textContent.trim() || el.querySelector('pe-area, svg, input, button, a, [data-picture]');
+  // A fixed sidebar has a separate spacer in the page flow. Keep both when it has
+  // content, including an area whose selected option is still stored elsewhere.
+  for (const gap of root.querySelectorAll('[data-slot="sidebar-gap"]')) {
+    const next = gap.nextElementSibling;
+    if (hasContent(gap) || next?.matches('pe-area')) continue;
+    const panel = gap.closest('[data-slot="sidebar"]') ?? (next?.matches(sidebar) ? next
+      : [...gap.parentElement.children].find((el) => el.matches(sidebar) && hasContent(el)));
+    if (!panel || !hasContent(panel)) gap.remove();
+  }
+  for (const el of root.querySelectorAll(sidebar)) {
+    if (!hasContent(el)) el.remove();
+  }
+  if (decision === 'nothing-to-show' && root.childElementCount === 1) {
+    // A full-height empty state sometimes loses the wrapper that centers its single
+    // heading-and-actions group. The outer flex column can supply that alignment.
+    const pane = root.firstElementChild;
+    if (pane.matches('.flex.flex-col.flex-1') && pane.childElementCount === 1
+        && pane.firstElementChild.matches('.flex.flex-col.items-center.text-center')
+        && !has(classes(pane), /^(?:justify-|place-content-)/) && !pane.style.justifyContent && !pane.style.placeContent) {
+      pane.classList.add('justify-center');
+    }
   }
   for (const el of root.querySelectorAll('button, [data-slot="button"], [role="button"]')) {
     const list = classes(el);
@@ -132,11 +152,11 @@ function repair(root) {
  * Markup from an analysis, reduced to what is safe to draw. A <pe-area id> becomes the comment
  * <!--pe-area:id-->, which marks a place without being an element that styles could count.
  */
-export function sanitize(html) {
+export function sanitize(html, decision) {
   const doc = parseMarkup(html);
   cleanElement(doc.body);
   for (const svg of doc.body.querySelectorAll('svg[data-icon]')) drawIcon(svg);
-  repair(doc.body);
+  repair(doc.body, decision);
   for (const slot of [...doc.body.querySelectorAll('pe-area')]) {
     const id = (slot.getAttribute('id') ?? '').replace(/[^a-z0-9-]/gi, '');
     if (id) slot.replaceWith(doc.createComment(`pe-area:${id}`));
@@ -586,7 +606,7 @@ function documentParts(analysis) {
   return {
     page: sanitize(analysis.page),
     store: analysis.areas.flatMap((area) => area.options.map((option) => (
-      `<div data-pe-option="${area.id} ${option.id}">${sanitize(option.html)}</div>`
+      `<div data-pe-option="${area.id} ${option.id}">${sanitize(option.html, option.keep ? area.decision : null)}</div>`
     ))).join(''),
     areas: analysis.areas.map((area) => ({ id: area.id, label: area.label, options: area.options.map((o) => o.id) })),
   };
@@ -775,6 +795,7 @@ export class Preview {
  * changed its width.
  */
 export function mountThumb(box, analysis, assets, areaId, choices, { width, height }, onFit) {
+  const emptyState = analysis.areas.find((area) => area.id === areaId)?.decision === 'nothing-to-show';
   const token = newToken();
   const frame = makeFrame('');
   frame.setAttribute('tabindex', '-1');
@@ -793,10 +814,11 @@ export function mountThumb(box, analysis, assets, areaId, choices, { width, heig
     const r = { left: rect.left - pad, top: rect.top - pad, right: rect.right + pad, bottom: rect.bottom + pad };
     const w = r.right - r.left;
     const h = r.bottom - r.top;
-    // The area is shown as wide as the box. The box takes its height, up to a limit: of a tall
-    // area the top is shown, large enough to be read, instead of all of it, too small to.
-    const scale = Math.min(box.clientWidth / w, 1);
-    const tall = Math.max(44, Math.min(h * scale, 150, box.clientWidth * 0.7));
+    // Empty states use the surrounding space to place their content. Fit that space
+    // inside the thumbnail so its center stays visible even in portrait previews.
+    const maxHeight = Math.min(150, box.clientWidth * 0.7);
+    const scale = Math.min(box.clientWidth / w, emptyState ? maxHeight / h : 1, 1);
+    const tall = Math.max(44, Math.min(h * scale, maxHeight));
     box.style.height = `${Math.round(tall)}px`;
     const x = (box.clientWidth - w * scale) / 2 - r.left * scale;
     const y = (h * scale < tall ? (tall - h * scale) / 2 : 0) - r.top * scale;
