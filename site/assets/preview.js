@@ -332,8 +332,8 @@ function bridge(placeDot, resolveOptions) {
   /**
    * A live page is shown without its scripts, and many pages keep parts of themselves
    * transparent until a script lets them fade in: a headline word by word, a section as it is
-   * scrolled to. Such parts are made visible. What is transparent and lies over the page (a
-   * menu, a tooltip, a dialog) is hidden for another reason and stays so.
+   * scrolled to. Such parts are made visible. What is transparent for another reason (a menu,
+   * a tooltip, something that lies over the page) stays so.
    */
   function reveal() {
     const over = (el) => {
@@ -343,8 +343,11 @@ function bridge(placeDot, resolveOptions) {
       }
       return false;
     };
-    for (const el of document.body.querySelectorAll('*:not([data-pe-shown])')) {
-      if (store.contains(el)) continue;
+    // Transparent by its own style attribute, or by the mark of a library that fades things in:
+    // that is how a part waits for a script. What a class hides (the other state of a control, a
+    // layer for another theme) is meant to stay hidden.
+    for (const el of document.body.querySelectorAll('[style*="opacity"]:not([data-pe-shown]), [data-aos]:not([data-pe-shown]), [data-sal]:not([data-pe-shown])')) {
+      if (store.contains(el) || el.closest('[role=menu], [role=dialog], [role=tooltip], [role=listbox]')) continue;
       if (getComputedStyle(el).opacity === '0' && !over(el)) el.setAttribute('data-pe-shown', '');
     }
   }
