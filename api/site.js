@@ -68,7 +68,9 @@ const tokens = (usage) => (usage ? { prompt: usage.prompt_tokens, cached: usage.
 /** A page's name as a person would say it: the part of its title that is not the site's slogan. */
 function shortTitle(title, url) {
   const parts = (title ?? '').split(/\s+[|–—·:-]\s+/).map((part) => part.trim()).filter(Boolean);
-  const name = parts.find((part) => part.length >= 3 && part.length <= 40) ?? parts[0] ?? '';
+  const fits = parts.filter((part) => part.length >= 2 && part.length <= 40);
+  // On a site's first page the short part is the site's name; elsewhere the first part is the page's.
+  const name = (url.pathname === '/' ? [...fits].sort((a, b) => a.length - b.length)[0] : fits[0]) ?? parts[0] ?? '';
   return clean(name, 40) ?? url.hostname.replace(/^www\./, '');
 }
 
