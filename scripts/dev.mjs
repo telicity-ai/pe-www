@@ -10,6 +10,7 @@ import { extname, join, normalize as normalizePath } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readFileSync } from 'node:fs';
 import handler from '../api/storyboard.js';
+import siteHandler from '../api/site.js';
 
 const root = fileURLToPath(new URL('../site/', import.meta.url));
 const mock = process.argv.includes('--mock');
@@ -24,11 +25,13 @@ function query(url) {
 
 createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
-  if (url.pathname === '/api/storyboard') {
+  if (url.pathname === '/api/storyboard' || url.pathname === '/api/site') {
+    const site = url.pathname === '/api/site';
     res.status = (code) => { res.statusCode = code; return res; };
     res.json = (body) => { res.setHeader('content-type', 'application/json'); res.end(JSON.stringify(body)); };
     if (mock) {
-      const file = process.env.MOCK_FILE || fileURLToPath(new URL('../test/fixtures/answer.json', import.meta.url));
+      // MOCK_SITE_FILE plays back an answer of /api/site in the same way.
+      const file = (site && process.env.MOCK_SITE_FILE) || process.env.MOCK_FILE || fileURLToPath(new URL('../test/fixtures/answer.json', import.meta.url));
       const { events } = JSON.parse(readFileSync(file, 'utf8'));
       const speed = Number(process.env.MOCK_SPEED) || 1;
       const started = Date.now();
@@ -41,7 +44,7 @@ createServer(async (req, res) => {
       return res.end();
     }
     req.query = query(url);
-    return handler(req, res);
+    return site ? siteHandler(req, res) : handler(req, res);
   }
   const path = normalizePath(join(root, url.pathname === '/' ? 'index.html' : decodeURIComponent(url.pathname)));
   if (!path.startsWith(root)) return res.writeHead(403).end();

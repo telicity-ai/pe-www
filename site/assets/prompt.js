@@ -4,6 +4,7 @@
 const TEXT = {
   en: {
     intro: (title, file) => `Use the picky-eater skill on the ${title} screen of this project (${file}).`,
+    introSite: (title, url) => `Use the picky-eater skill on the ${title} page of this project. It is live at ${url}.`,
     introMany: 'Use the picky-eater skill on these screens of this project, one after another.',
     heading: (title, file) => `${title} screen (${file}):`,
     leaning: 'I tried it on the web and lean toward:',
@@ -14,6 +15,7 @@ const TEXT = {
   },
   ko: {
     intro: (title, file) => `picky-eater 스킬로 이 프로젝트의 ${title} 화면(${file})을 다듬어 줘.`,
+    introSite: (title, url) => `picky-eater 스킬로 이 프로젝트의 ${title} 페이지를 다듬어 줘. 지금 ${url} 에 올라가 있는 페이지야.`,
     introMany: 'picky-eater 스킬로 이 프로젝트의 아래 화면들을 차례로 다듬어 줘.',
     heading: (title, file) => `${title} 화면 (${file}):`,
     leaning: '웹에서 먼저 골라 봤어. 이쪽이 마음에 들어:',
@@ -50,7 +52,7 @@ function body(out, analysis, choices, t, lang) {
 
 export function buildPrompt(analysis, choices, lang) {
   const t = TEXT[lang] ?? TEXT.en;
-  const out = [t.intro(analysis.screen.title, analysis.screen.file), ''];
+  const out = [(analysis.site ? t.introSite : t.intro)(analysis.screen.title, analysis.screen.file), ''];
   const picked = body(out, analysis, choices, t, lang);
   out.push(picked ? t.outro : t.outroOpenOnly);
   return out.join('\n');

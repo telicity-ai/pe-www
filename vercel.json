@@ -2,9 +2,10 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": null,
   "buildCommand": null,
-  "installCommand": null,
+  "installCommand": "npm install --omit=dev",
   "outputDirectory": "site",
   "functions": {
-    "api/storyboard.js": { "maxDuration": 300 }
+    "api/storyboard.js": { "maxDuration": 300 },
+    "api/site.js": { "maxDuration": 300 }
   }
 }

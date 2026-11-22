@@ -56,9 +56,28 @@ browser ── GitHub API ──▶ file tree, package.json            (the visi
   captured from the running app by `scripts/capture-sample.mjs` into
   `site/assets/sample-data.js`. Its words are in `site/assets/sample.js`.
 
+## A web address instead of a repository
+
+Typed a web address (`example.com/pricing`), the page asks `api/site.js` instead:
+
+- **The page is the site's own.** The function fetches the page and its stylesheets and takes
+  out what would run (`api/_lib/page.js`); nothing is written anew by the model, so it is
+  there after a second or two. One call names three areas from an outline of the page's
+  elements; then each option of each area is drawn by a call of its own, from that element
+  with its pictures and drawings set aside and put back afterwards.
+- **Only public pages, as they are served.** No address inside a private network is fetched,
+  and every redirect is looked at again (`api/_lib/web.js`). A page that is drawn by its
+  scripts, or that asks to sign in, arrives all but empty and is refused with a word on why.
+- **Shown without its scripts**, in the same sandboxed frame, with its own pictures and fonts
+  (a font that its server does not share with other origins falls back to the next one).
+- **The prompt names the address**, not a file: the agent that gets it has to find the code.
+
+This needs one dependency (`parse5`, to read HTML as a browser does), so there is an install
+step now: `npm install`.
+
 ## Develop
 
-Node.js 20 or newer. There is nothing to install.
+Node.js 20 or newer. `npm install` once (one dependency, for reading web pages).
 
 ```sh
 npm run dev -- --mock   # http://127.0.0.1:4321, the analysis plays back a recorded answer

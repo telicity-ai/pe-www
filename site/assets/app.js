@@ -36,9 +36,12 @@ const state = {
 // The picks of a project, and for a repository the analyses they were made on, so that coming
 // back to the page finds them again. One entry per project, the five latest repositories.
 const STORE = 'pe-picks:';
-const storeKey = (project) => `${STORE}${project.sample ? 'sample' : `${project.repo.owner}/${project.repo.name}`.toLowerCase()}`;
+const storeKey = (project) => `${STORE}${project.sample ? 'sample' : project.site ? `site:${project.site}` : `${project.repo.owner}/${project.repo.name}`.toLowerCase()}`;
 
 function saveNow(project) {
+  // A live page is read again on every visit (its answer is kept by the CDN for a day): its
+  // picks last as long as the page is open.
+  if (project.site) return;
   const screens = {};
   for (const screen of project.screens) {
     if (screen.saved && screen.status !== 'ready') {
@@ -358,8 +361,8 @@ function progress(screen) {
 function renderToolbar() {
   const project = state.project;
   const repo = project.repo;
-  $('rname').textContent = `${repo.owner}/${repo.name}`;
-  $('rsub').textContent = repo.sub ? `/${repo.sub}` : '';
+  $('rname').textContent = project.site ? project.label : `${repo.owner}/${repo.name}`;
+  $('rsub').textContent = !project.site && repo.sub ? `/${repo.sub}` : '';
   $('rtag').hidden = !project.sample;
   // The choice between light and dark is offered when the project's styles have both.
   $('scheme').hidden = !state.screen?.assets?.dark;
@@ -387,6 +390,9 @@ function renderRail() {
     return `<button type="button" class="scr${screen === state.screen ? ' on' : ''}" data-screen="${esc(screen.id)}" title="${esc(screen.path)}">${badge}${spinner}${esc(screen.title)}<small>${esc(screen.path)}</small></button>`;
   }).join(''));
   paint($('stack'), project.stack.map((item) => `<span>${esc(item)}</span>`).join(''));
+  // A live page has no stack to name.
+  $('stack').previousElementSibling.hidden = !project.stack.length;
+  document.querySelector('.pg-note').textContent = t(project.site ? 'pg.note.site' : 'pg.note');
 }
 
 function renderDiff() {
@@ -470,8 +476,9 @@ function loadSample({ hint = false } = {}) {
 
 function forgetRepo() {
   const url = new URL(location.href);
-  if (!url.searchParams.has('repo')) return;
+  if (!url.searchParams.has('repo') && !url.searchParams.has('url')) return;
   url.searchParams.delete('repo');
+  url.searchParams.delete('url');
   history.replaceState(null, '', url);
 }
 
@@ -519,6 +526,7 @@ function setStep(name, values) {
 const ERROR_KEYS = {
   bad_input: 'err.bad_input', not_found: 'err.not_found', network: 'err.network', github: 'err.github', empty: 'err.empty',
   no_screens: 'err.no_screens', not_configured: 'err.not_configured', busy: 'err.busy', offline: 'err.offline',
+  bad_url: 'err.bad_url', unreachable: 'err.unreachable', page_not_found: 'err.unreachable', not_a_page: 'err.not_a_page', too_large: 'err.too_large', empty_page: 'err.empty_page',
   file_not_found: 'err.file', file_too_small: 'err.file',
 };
 
@@ -530,11 +538,12 @@ function showError(error) {
   else message = t(ERROR_KEYS[code] ?? 'err.failed');
   if (!(error instanceof RepoError)) console.error(error);
   $('ermsg').textContent = message;
-  $('erretry').hidden = code === 'bad_input' || code === 'not_found' || code === 'not_configured' || code === 'no_screens';
+  $('erretry').hidden = ['bad_input', 'not_found', 'not_configured', 'no_screens', 'bad_url', 'not_a_page', 'too_large', 'empty_page'].includes(code);
   $('er').hidden = false;
 }
 
 function boardUrl(project, screen, files) {
+  if (project.site) return `${API_BASE}/api/site?${new URLSearchParams({ url: screen.path, lang: getLang(), try: String(screen.tries) })}`;
   const params = new URLSearchParams({ repo: `${project.repo.owner}/${project.repo.name}`, ref: project.repo.ref, path: screen.path, lang: getLang() });
   for (const path of files.related) params.append('rel', path);
   for (const path of files.styles) params.append('css', path);
@@ -655,15 +664,20 @@ async function analyzeScreen(screen, run = ++state.run) {
   const soon = () => { timer ??= setTimeout(draw, DRAW_EVERY_MS); };
 
   try {
-    files ??= await collectFiles(project.scan, screen.path);
+    // A live page brings its stylesheets with its answer; a repository's are collected first.
+    files ??= project.site ? { related: [], styles: [], assets: { css: [], tailwind: false, dark: false, site: {} } } : await collectFiles(project.scan, screen.path);
     screen.assets = files.assets;
     // A failure that comes at once is one the CDN kept: the next address is asked instead.
     for (let attempt = 0; ; attempt += 1) {
       board = newBoard(screen.path);
+      if (project.site) screen.assets.css = board.sheets;
       try {
         await streamBoard(boardUrl(project, screen, files), (event) => {
           if (event.t === 'plan' && watched() && !showing) setStep('draw');
           if (take(board, event)) soon();
+          if (event.t === 'site') screen.assets.site = board.site;
+          // The page is all there before anything is asked of the model: it is shown at once.
+          if (event.t === 'page-end' && project.site) soon();
         });
         // An answer in which no area found its place in the page is asked for once more.
         if (attempt === 0 && !current().areas.length) {
@@ -732,6 +746,35 @@ function readAhead() {
 }
 document.addEventListener('visibilitychange', readAhead);
 
+/** An address that is a web page rather than a repository on GitHub: the name of a host, with a dot in it. */
+function siteAddress(input) {
+  const text = String(input ?? '').trim();
+  const host = /^(?:https?:\/\/)?([^/?#\s]+)/i.exec(text)?.[1]?.toLowerCase() ?? '';
+  if (!/^([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}(:\d+)?$/.test(host) || /^(www\.)?github\.com$/.test(host)) return null;
+  return /^https?:\/\//i.test(text) ? text : `https://${text}`;
+}
+
+/** A live web page: there is one screen, the page itself, and nothing to scan before it. */
+async function analyzeSite(address) {
+  const run = ++state.run;
+  state.retry = () => analyzeSite(address);
+  const at = new URL(address);
+  const label = `${at.hostname.replace(/^www\./, '')}${at.pathname.replace(/\/$/, '')}`;
+  state.project = { sample: false, site: `${at.hostname}${at.pathname}`.toLowerCase(), label, repo: { owner: at.hostname, name: '', sub: '' }, stack: [], screens: [{ id: address, path: address, title: label, status: 'idle' }] };
+  state.screen = null;
+  $('rname').textContent = label;
+  $('rsub').textContent = '';
+  $('rtag').hidden = true;
+  paint($('pips'), '');
+  $('pcount').textContent = '';
+  renderRail();
+  const url = new URL(location.href);
+  url.searchParams.delete('repo');
+  url.searchParams.set('url', address);
+  history.replaceState(null, '', url);
+  await analyzeScreen(state.project.screens[0], run);
+}
+
 async function analyzeRepo(input) {
   const run = ++state.run;
   state.retry = () => analyzeRepo(input);
@@ -780,8 +823,12 @@ $('try').addEventListener('submit', (event) => {
     return;
   }
   $('playground').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-  analyzeRepo(value);
+  const site = siteAddress(value);
+  if (site) analyzeSite(site);
+  else analyzeRepo(value);
 });
+// "github.com/" stands before what is typed only while that is not a web address of its own.
+$('repo').addEventListener('input', () => $('try').classList.toggle('web', Boolean(siteAddress($('repo').value))));
 
 $('sample').addEventListener('click', () => {
   forgetRepo();
@@ -960,8 +1007,14 @@ for (const button of document.querySelectorAll('[data-lang]')) {
 initLang();
 // On a phone the page is shown as a phone shows it; a desktop layout would be too small to read.
 if (window.matchMedia('(max-width: 720px)').matches) setDevice('phone');
-const asked = new URLSearchParams(location.search).get('repo');
-loadSample({ hint: !asked });
+const page = siteAddress(new URLSearchParams(location.search).get('url'));
+const asked = page ? null : new URLSearchParams(location.search).get('repo');
+loadSample({ hint: !asked && !page });
+if (page) {
+  $('repo').value = page;
+  $('try').classList.add('web');
+  analyzeSite(page);
+}
 if (asked && parseRepo(asked)) {
   $('repo').value = asked.replace(/^(https?:\/\/)?(www\.)?github\.com\//i, '');
   analyzeRepo(asked);

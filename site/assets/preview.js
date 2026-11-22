@@ -18,6 +18,9 @@ const SVG_TAGS = new Set(('svg g path circle ellipse rect line polyline polygon 
 const ATTRIBUTES = new Set(('class id style title role tabindex lang dir hidden open type value placeholder checked disabled selected readonly multiple name for rows cols colspan rowspan scope width height alt min max step size maxlength low high optimum inert draggable datetime label '
   + 'viewbox d fill fill-rule fill-opacity clip-rule stroke stroke-width stroke-linecap stroke-linejoin stroke-dasharray stroke-dashoffset stroke-opacity opacity cx cy r rx ry x y x1 y1 x2 y2 points transform xmlns preserveaspectratio offset stop-color stop-opacity gradientunits gradienttransform font-size text-anchor dominant-baseline').split(' '));
 
+// A live page's pictures are its own and are shown; a repository's cannot be loaded.
+let pictures = false;
+
 function cleanElement(el) {
   for (const child of [...el.children]) {
     const tag = child.localName.toLowerCase();
@@ -47,6 +50,13 @@ function cleanElement(el) {
       }
       // Nothing is fetched from a style attribute either.
       if (name === 'style' && /url\s*\(|expression\s*\(|@import|\\/i.test(attribute.value)) child.removeAttribute(attribute.name);
+    }
+    if (tag === 'img' && pictures && /^https:\/\//i.test(child.getAttribute('data-src') ?? '')) {
+      child.setAttribute('src', child.getAttribute('data-src'));
+      child.removeAttribute('data-src');
+      child.setAttribute('referrerpolicy', 'no-referrer');
+      child.setAttribute('loading', 'lazy');
+      continue;
     }
     if (tag === 'img') {
       // A picture cannot be loaded from the repository: an empty box of the same size stands in.
@@ -185,12 +195,21 @@ function repair(root, decision) {
  * Markup from an analysis, reduced to what is safe to draw. A <pe-area id> becomes the comment
  * <!--pe-area:id-->, which marks a place without being an element that styles could count.
  */
-export function sanitize(html, decision, slots, sectionGrids) {
-  const doc = parseMarkup(html);
-  cleanElement(doc.body);
+export function sanitize(html, decision, slots, sectionGrids, site = false) {
+  // The address of a picture is not among the attributes that stay: it is set aside until the element is known to be kept.
+  const doc = parseMarkup(site ? html.replace(/<img\b([^>]*?)\ssrc\s*=\s*(["'])(https:\/\/[^"']*)\2/gi, '<img$1 data-src=$2$3$2') : html);
+  pictures = site;
+  try {
+    cleanElement(doc.body);
+  } finally {
+    pictures = false;
+  }
   for (const svg of doc.body.querySelectorAll('svg[data-icon]')) drawIcon(svg);
-  restoreSectionGrids(doc.body, sectionGrids);
-  repair(doc.body, decision);
+  // What follows mends markup that a model wrote from source code; a live page is as its site made it.
+  if (!site) {
+    restoreSectionGrids(doc.body, sectionGrids);
+    repair(doc.body, decision);
+  }
   for (const slot of [...doc.body.querySelectorAll('pe-area')]) {
     const id = (slot.getAttribute('id') ?? '').replace(/[^a-z0-9-]/gi, '');
     if (!id) {
@@ -212,7 +231,7 @@ const inert = (css) => css.replace(/<\/(?=style)/gi, '<\\/').replace(/<!--/g, ''
 export function projectCss(texts, tailwind) {
   let css = texts.join('\n\n');
   css = css.replace(/@(plugin|source|config|reference)\b[^;{]*;/g, '');
-  css = css.replace(/@import\s+(?:url\()?\s*["']?(?!tailwindcss)(?!https:\/\/fonts\.googleapis\.com)[^;]*;/g, '');
+  css = css.replace(/@import\b[^;]*;/g, (rule) => (/^@import\s+(url\(\s*)?["']?(tailwindcss|https:\/\/fonts\.googleapis\.com\/)/.test(rule) ? rule : ''));
   // A stylesheet that Tailwind 4 could not read is read again without the rules it stumbled on.
   if (tailwind === 'plain') css = css.replace(/@apply\b[^;}]*;?/g, '');
   if (tailwind) {
@@ -665,12 +684,12 @@ const layouts = new WeakMap();
 /** What a frame shows of an analysis: the page, the options kept aside, and the areas they belong to. */
 function documentParts(analysis, sectionGrids) {
   const roots = [];
-  const page = sanitize(analysis.page, null, roots, sectionGrids);
+  const page = sanitize(analysis.page, null, roots, sectionGrids, analysis.site);
   const store = [];
   const areas = analysis.areas.map((area) => {
     const options = area.options.map((option) => {
       const slots = [];
-      const html = sanitize(option.html, option.keep ? area.decision : null, slots, sectionGrids);
+      const html = sanitize(option.html, option.keep ? area.decision : null, slots, sectionGrids, analysis.site);
       store.push(`<div data-pe-option="${area.id} ${option.id}">${html}</div>`);
       return { id: option.id, slots };
     });
@@ -698,8 +717,9 @@ export function buildDocument(analysis, assets, { token, choices = {}, focus = n
     "default-src 'none'",
     `script-src 'nonce-${n}' ${TAILWIND}`,
     "style-src 'unsafe-inline' https://fonts.googleapis.com",
-    'font-src https://fonts.gstatic.com data:',
-    'img-src data:',
+    // A live page is shown with its own fonts and pictures, fetched from where the page has them.
+    assets.site ? 'font-src https: data:' : 'font-src https://fonts.gstatic.com data:',
+    assets.site ? 'img-src https: data:' : 'img-src data:',
     "base-uri 'none'",
     "form-action 'none'",
   ].join('; ');
@@ -712,6 +732,23 @@ export function buildDocument(analysis, assets, { token, choices = {}, focus = n
   const config = { token, focus, choices, layout: parts.layout };
   // A project with a dark variant is shown dark unless light was asked for.
   const root = assets.dark && assets.scheme !== 'light' ? ' class="dark" data-theme="dark" style="color-scheme:dark"' : '';
+  const carried = (attributes) => Object.entries(attributes ?? {})
+    .filter(([name]) => /^(class|lang|dir|data-[a-z0-9-]+)$/.test(name))
+    .map(([name, value]) => ` ${name}="${String(value).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;')}"`).join('');
+  if (assets.site) {
+    return `<!doctype html><html${carried(assets.site.html)}><head><meta charset="utf-8">`
+      + `<meta http-equiv="Content-Security-Policy" content="${csp}">`
+      + '<meta name="viewport" content="width=device-width, initial-scale=1">'
+      + '<meta name="referrer" content="no-referrer">'
+      + '<style>@layer pe-base{svg[data-icon]{width:1em;height:1em}}</style>'
+      + `<style>${sheet}</style>`
+      // After the page's own styles: the page scrolls as a whole, whatever they say.
+      + `<style>html{overflow:auto!important}body{overflow:visible!important}${focus ? 'html{scrollbar-width:none}*{animation:none!important;transition:none!important}' : ''}</style>`
+      + `</head><body${carried(assets.site.body)}>${parts.page}`
+      + `<div id="pe-store" style="display:none!important">${parts.store}</div>`
+      + `<script nonce="${n}">window.__PE__=${JSON.stringify(config).replace(/</g, '\\u003c')};${BRIDGE}</script>`
+      + '</body></html>';
+  }
   return `<!doctype html><html lang="en"${root}><head><meta charset="utf-8">`
     + `<meta http-equiv="Content-Security-Policy" content="${csp}">`
     + '<meta name="viewport" content="width=device-width, initial-scale=1">'
