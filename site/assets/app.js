@@ -827,8 +827,14 @@ $('try').addEventListener('submit', (event) => {
   if (site) analyzeSite(site);
   else analyzeRepo(value);
 });
-// "github.com/" stands before what is typed only while that is not a web address of its own.
-$('repo').addEventListener('input', () => $('try').classList.toggle('web', Boolean(siteAddress($('repo').value))));
+/** The mark before the address follows what is typed: a web page, a repository on GitHub, or neither yet. */
+function markAddress() {
+  const value = $('repo').value;
+  const web = Boolean(siteAddress(value));
+  $('try').classList.toggle('web', web);
+  $('try').classList.toggle('git', !web && Boolean(parseRepo(value)));
+}
+$('repo').addEventListener('input', markAddress);
 
 $('sample').addEventListener('click', () => {
   forgetRepo();
@@ -1012,10 +1018,10 @@ const asked = page ? null : new URLSearchParams(location.search).get('repo');
 loadSample({ hint: !asked && !page });
 if (page) {
   $('repo').value = page;
-  $('try').classList.add('web');
   analyzeSite(page);
 }
 if (asked && parseRepo(asked)) {
   $('repo').value = asked.replace(/^(https?:\/\/)?(www\.)?github\.com\//i, '');
   analyzeRepo(asked);
 }
+markAddress();

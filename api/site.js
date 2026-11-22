@@ -26,9 +26,11 @@ const LOCAL_ORIGIN = /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
 
 const PAGE_BYTES = 2_500_000; // the page as it is served
 const PAGE_CHARS = 1_000_000; // what is left of it without scripts
-const SHEETS = 14;
-const SHEET_BYTES = 700_000;
-const SHEETS_CHARS = 1_800_000;
+// A site built from parts has a stylesheet for each (some fifty of a few kilobytes); one built
+// as a whole has one of a megabyte. Both are taken.
+const SHEETS = 80;
+const SHEET_BYTES = 2_000_000;
+const SHEETS_CHARS = 4_000_000;
 const OPTION_TOKENS = 2_600;
 const DEADLINE_MS = 120_000;
 

@@ -48,10 +48,10 @@ h1 .dimmer{color:#7c7c7c}
 .cap u{text-decoration:none;text-transform:none;letter-spacing:0;font-family:var(--sans);font-size:12.5px;text-align:right}
 .try{display:flex;align-items:center;height:58px;padding:0 7px 0 17px;border-radius:14px;background:#111112;border:1px solid rgba(255,255,255,.24);box-shadow:0 0 0 5px rgba(240,80,155,.07),0 14px 40px rgba(0,0,0,.5);transition:border-color .15s,box-shadow .15s}
 .try:focus-within{border-color:var(--pink);box-shadow:0 0 0 5px rgba(240,80,155,.2)}
-.try svg{width:20px;height:20px;color:#8a8a8a;flex:none}
-.try label{font:400 15.5px var(--mono);color:var(--dim);margin-left:11px}
-.try.web label{display:none}
-.try.web svg{margin-right:10px}
+.try svg{width:20px;height:20px;color:#8a8a8a;flex:none;margin-right:11px}
+/* The mark before the address says what it was taken for: a repository, a web page, or nothing yet. */
+.try .ic-git,.try .ic-web,.try.git .ic-any,.try.web .ic-any{display:none}
+.try.git .ic-git,.try.web .ic-web{display:block}
 .try input{flex:1;min-width:0;height:100%;background:none;border:0;outline:0;color:var(--fg);font:400 15.5px var(--mono);padding:0}
 .try input::placeholder{color:#4d4d4f}
 .try button{height:42px;padding:0 18px;border-radius:10px;border:0;background:#ededed;color:#0a0a0a;font-size:14.5px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:7px;white-space:nowrap}
@@ -374,7 +374,6 @@ h1 .dimmer{color:#7c7c7c}
   .hero{padding:56px 18px 30px}
   .cap u{display:none}
   .try{height:54px;padding-left:13px}
-  .try label{display:none}
   .try svg{margin-right:10px}
   .try button{padding:0 14px}
   .inst{font-size:12.5px;padding-left:13px}
