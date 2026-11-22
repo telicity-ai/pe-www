@@ -1,0 +1,25 @@
+# picky-eater
+
+> picky-eater is an MIT-licensed Agent Skill for reviewing UI design options in your browser before a coding agent builds a web page.
+
+The agent draws options for a new page or overlays them on an existing site running on a local development server. You choose options and approve a mockup in your browser. The agent builds the page, then compares it with what you approved.
+
+The installed skill runs locally and requires Node.js 22 or later. It has been tested end to end with Claude Code and the OpenAI Codex CLI. Cursor can install it through the Agent Skills format. Its end-to-end workflow has yet to be verified.
+
+From your project root, install the skill with `npx skills add telicity-ai/picky-eater --skill picky-eater -a claude-code codex cursor -y`. On npm, `npx picky-eater --help` runs the CLI. Follow the skill installation steps to make it available inside your coding agent.
+
+The landing page is a hosted demo. Its repository analysis reads public GitHub repositories to build a preview. The installed skill works with your own local project.
+
+## Documentation
+
+- [Project README](https://raw.githubusercontent.com/telicity-ai/picky-eater/main/README.md)
+- [Installation guide](https://raw.githubusercontent.com/telicity-ai/picky-eater/main/docs/installation.md)
+- [Compatibility](https://raw.githubusercontent.com/telicity-ai/picky-eater/main/docs/compatibility.md)
+- [Skill instructions](https://raw.githubusercontent.com/telicity-ai/picky-eater/main/skills/picky-eater/SKILL.md)
+- [Security and privacy](https://raw.githubusercontent.com/telicity-ai/picky-eater/main/SECURITY.md)
+
+## Project links
+
+- [Interactive demo](https://telicity-ai.github.io/pe-www/)
+- [GitHub repository](https://github.com/telicity-ai/picky-eater)
+- [npm package](https://www.npmjs.com/package/picky-eater)
