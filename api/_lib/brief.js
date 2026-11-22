@@ -231,6 +231,8 @@ ${outline}
 
 Choose 3 areas (2 when the page is small) where the catalog has a real alternative for what the page does there: the layout of a section (a hero, features, pricing, what customers say, questions), navigation, a form, a list or a table, where a call to action sits. Prefer the parts that matter most to a visitor, and the upper part of the page. No area lies inside another, and no two are the same kind of thing.
 
+An option is drawn in the place of its element, as a part of the page. So choose only patterns that change how that part itself looks: its layout, its order, its kind of control. Do not choose a pattern that sticks to an edge of the screen or lies over the page (a bar fixed at the bottom or the top, a floating button, a toast, a dialog, a drawer, a tooltip), and do not choose the pattern that the element already is.
+
 Answer in exactly this form. ${FORM}
 
 @@AREA number | decision | pattern, pattern | label
@@ -247,7 +249,7 @@ EXAMPLE
 }
 
 /** One area's element of a live page, drawn with one pattern of the catalog. */
-export function siteVariantTask(area, option, today) {
+export function siteVariantTask(area, option, today, again = null) {
   const decision = DECISIONS.find((d) => d.id === area.decision);
   return `TASK: ONE ELEMENT OF THE PAGE WITH ANOTHER PATTERN
 
@@ -268,8 +270,10 @@ the element with that pattern
 @@END
 
 - @@OPTION: at most 8 plain words, no design vocabulary and no pattern names ("Plans side by side in a table").${option.suggested ? '\n- @@WHY: one sentence of at most 22 words, with a reason that comes from this page.' : ''}
-- The HTML replaces the element of today: ONE element that fits in the same place, with the same words, links and pictures. It must look clearly different from today, and like a part of this page.
+- The HTML replaces the element of today: ONE element that fits in the same place, with ALL of its words, links and pictures; leave no heading or text out. It must look clearly different from today (another arrangement, not the same markup again), and like a part of this page.
 - Only the page's own stylesheets are loaded. Use the classes that the element of today uses, on elements that play the same part. For what those classes do not give (another direction, a grid, a gap, a border) write a style attribute.
+- The page may be dark or light, and you cannot see which. So write no color of your own (no white, no black, no gray, no hex value). For a surface or a line, thin the text color: background:color-mix(in srgb, currentColor 7%, transparent) and border:1px solid color-mix(in srgb, currentColor 16%, transparent).
+- The option is drawn where the element stands: no position:fixed and no position:sticky.
 - An element with data-keep stands for a picture or a drawing of the page that is not written out. Write it exactly as it stands (<img data-keep="3"> or <svg data-keep="3"></svg>) wherever that picture belongs, each at most once. You cannot draw new ones; for a new icon write <svg data-icon="lucide:NAME" style="width:1em;height:1em"></svg> with the name of a Lucide icon.
-- No <script>, <style>, <link> or <iframe>, no event handlers, no comments, no indentation.`;
+- No <script>, <style>, <link> or <iframe>, no event handlers, no comments, no indentation.${again === 'same' ? '\n\nYour last answer was the element of today again. Rearrange it as the pattern asks.' : again === 'short' ? '\n\nYour last answer left out most of the words of the element. Keep them all.' : ''}`;
 }

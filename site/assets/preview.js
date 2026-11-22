@@ -683,6 +683,11 @@ function bridge(placeDot, resolveOptions) {
       view = { open: message.open, chosen: message.chosen };
     }
     if (message.type === 'focus') dots.get(message.id)?.focus();
+    if (message.type === 'show') {
+      // The area is brought into view, a little below the top, so that its options have room above it.
+      const first = placed.get(message.id)?.nodes.find((node) => node.nodeType === 1);
+      if (first) window.scrollTo(0, Math.max(0, window.scrollY + first.getBoundingClientRect().top - Math.min(240, window.innerHeight * 0.32)));
+    }
   });
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape') say({ type: 'escape' });
@@ -910,6 +915,11 @@ export class Preview {
   focusDot(id) {
     this.frame?.focus();
     this.post({ type: 'focus', id });
+  }
+
+  /** Scrolls the page in the frame to an area. */
+  show(id) {
+    this.post({ type: 'show', id });
   }
 
   /** How tall the page in the frame is, in its own pixels. */

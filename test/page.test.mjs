@@ -66,3 +66,12 @@ test('the prompt for a live page names its address', () => {
   assert.match(buildPrompt(analysis, { a: 'pricing-table' }, 'en'), /^Use the picky-eater skill on the Pricing page of this project\. It is live at https:\/\/acme\.example\.org\/pricing\/\.\n\nI tried it on the web and lean toward:\n- How the plans are compared: plans side by side \(pricing-table\)/);
   assert.match(buildPrompt(analysis, {}, 'ko'), /^picky-eater 스킬로 이 프로젝트의 Pricing 페이지를 다듬어 줘\./);
 });
+
+test('an option that repeats today, or has lost its words, is told', async () => {
+  const { flawed } = await import('../api/site.js');
+  const today = '<section class="a"><h2>Built for the future. Available today.</h2><div class="r"><a class="x">Get started</a><a class="y">Contact sales</a></div></section>';
+  assert.equal(flawed(today.replace(/></g, '>\n  <'), today), 'same');
+  assert.equal(flawed('<div style="position:fixed"><a class="x">Get started</a><a class="y">Contact sales</a></div>', today), 'short', 'the heading is gone');
+  assert.equal(flawed('<section class="a"><h2>Built', today), 'short', 'an answer that broke off');
+  assert.equal(flawed('<section class="a" style="display:grid;grid-template-columns:1fr auto"><h2>Built for the future. Available today.</h2><div class="r" style="flex-direction:column"><a class="x">Get started</a><a class="y">Contact sales</a></div></section>', today), null);
+});

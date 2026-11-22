@@ -65,6 +65,32 @@ function limited(ip) {
 }
 
 const one = (value) => (Array.isArray(value) ? value[0] : value);
+
+const squeezed = (html) => html.replace(/\s+/g, '');
+const wordsOf = (html) => new Set(html.replace(/<[^>]*>/g, ' ').toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((word) => word.length > 2));
+
+/**
+ * What is wrong with an option, or null: "same" when it is the element of today again, "short"
+ * when it has lost most of the element's words (an answer that broke off, or a part taken for
+ * the whole).
+ */
+export function flawed(html, today) {
+  const a = squeezed(html);
+  const b = squeezed(today);
+  let head = 0;
+  while (head < a.length && head < b.length && a[head] === b[head]) head += 1;
+  let tail = 0;
+  while (tail < a.length - head && tail < b.length - head && a[a.length - 1 - tail] === b[b.length - 1 - tail]) tail += 1;
+  if (head + tail >= Math.max(a.length, b.length) * 0.97) return 'same';
+  const wanted = wordsOf(today);
+  const have = wordsOf(html);
+  const kept = [...wanted].filter((word) => have.has(word)).length;
+  if (html.length < today.length * 0.3 || (wanted.size >= 4 && kept < wanted.size * 0.6)) return 'short';
+  return null;
+}
+
+/** An option stands in the element's place: what would pin it to the screen is taken off. */
+const unpinned = (html) => html.replace(/position\s*:\s*(fixed|sticky)/gi, 'position:relative');
 const tokens = (usage) => (usage ? { prompt: usage.prompt_tokens, cached: usage.prompt_tokens_details?.cached_tokens, completion: usage.completion_tokens } : undefined);
 
 /** A page's name as a person would say it: the part of its title that is not the site's slogan. */
@@ -153,27 +179,34 @@ async function draw({ address, lang, send, signal }) {
     const today = compact(area.candidate.node);
     return area.options.map(async (option) => {
       const kind = `${area.id}:${option.id}`;
-      const variant = new Variant(area, option);
-      const answer = new Reader((name, rest) => variant.marker(name, rest), (text) => variant.text(text));
-      for (let attempt = 0; attempt < 2; attempt += 1) {
+      let event = null;
+      let again = null;
+      // Asked a second time when the answer is the element of today again, or has lost its words.
+      for (let attempt = 0; attempt < 2 && !signal.aborted; attempt += 1) {
+        const variant = new Variant(area, option);
+        const answer = new Reader((name, rest) => variant.marker(name, rest), (text) => variant.text(text));
         try {
-          const result = await ask({ messages: messages(siteVariantTask(area, option, today.html)), maxTokens: OPTION_TOKENS, signal, onText: (piece) => answer.push(piece) });
+          const result = await ask({ messages: messages(siteVariantTask(area, option, today.html, again)), maxTokens: OPTION_TOKENS, signal, onText: (piece) => answer.push(piece) });
           answer.end();
-          calls.push({ kind, ms: result.ms, first: result.firstMs, finish: result.finish, ...tokens(result.usage) });
-          break;
+          calls.push({ kind, ms: result.ms, first: result.firstMs, finish: result.finish, ...tokens(result.usage), ...(again ? { again } : {}) });
         } catch (error) {
           calls.push({ kind, failed: error.code ?? 'failed' });
-          if (attempt || error.code !== 'busy' || signal.aborted) break;
+          if (error.code !== 'busy') break;
           await new Promise((resolve) => setTimeout(resolve, 1500));
+          continue;
+        }
+        const drawnNow = variant.result();
+        again = drawnNow ? flawed(drawnNow.html, today.html) : 'short';
+        if (!again) {
+          event = drawnNow;
+          break;
         }
       }
-      const event = variant.result();
-      // An answer that broke off early is a fragment of the element, not the element.
-      if (!event || event.html.length < today.html.length * 0.3) {
+      if (!event) {
         send({ t: 'miss', area: area.id, id: option.id });
         return;
       }
-      event.html = restore(event.html, today.kept).slice(0, LIMITS.option);
+      event.html = unpinned(restore(event.html, today.kept)).slice(0, LIMITS.option);
       send(event);
       drawn += 1;
     });

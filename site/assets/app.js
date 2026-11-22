@@ -237,8 +237,14 @@ let placing = false;
  * The part is taken as it was when it was opened (the frame holds that still) and as tall as
  * its tallest option makes it: the options stay where they are while one of them is tried.
  */
+let settling = null; // while the page scrolls to an area that was asked for from the toolbar
+
 function placePop() {
   if (!state.open || placing) return;
+  if (settling) {
+    pop.style.visibility = 'hidden';
+    return;
+  }
   const W = document.documentElement.clientWidth;
   const H = document.documentElement.clientHeight;
   let at = preview.place(state.open);
@@ -326,6 +332,17 @@ function openArea(id, fromKeyboard = false, fromToolbar = false) {
   renderToolbar();
   renderRail();
   renderPop();
+  clearTimeout(settling);
+  settling = null;
+  if (id && fromToolbar) {
+    // Asked for from the toolbar, the area may be anywhere on the page: the page goes to it,
+    // and the options are placed by it once it has arrived.
+    preview.show(id);
+    settling = setTimeout(() => {
+      settling = null;
+      placePop();
+    }, 200);
+  }
   placePop();
   renderDiff();
   if (id && fromKeyboard) pop.querySelector('.opt')?.focus();
