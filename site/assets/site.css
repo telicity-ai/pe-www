@@ -80,9 +80,11 @@ h1 .dimmer{color:#7c7c7c}
 .prog{display:inline-flex;align-items:center;gap:9px;font-size:12.5px;white-space:nowrap;flex:none}
 #pcount.busy{display:inline-flex;align-items:center;gap:7px;color:var(--pink)}
 #pcount.busy::before{content:"";width:10px;height:10px;border-radius:50%;border:1.5px solid var(--pink);border-right-color:transparent;animation:spin .7s linear infinite}
-.pips{display:inline-flex;gap:4px}
-.pips i{width:15px;height:6px;border-radius:3px;border:1px dashed #5a5a5a;display:block}
-.pips i.f{background:var(--pink);border:1px solid var(--pink)}
+.pips{display:inline-flex}
+.pips button{display:grid;place-items:center;width:24px;height:28px;padding:0;border:0;border-radius:5px;background:none;cursor:pointer}
+.pips button::before{content:"";width:15px;height:6px;box-sizing:border-box;border-radius:3px;border:1px dashed var(--pink)}
+.pips button.f::before{background:var(--pink);border-style:solid}
+.pips button:is(:hover,:focus-visible,[aria-expanded="true"]){background:rgba(240,80,155,.15)}
 .body{position:relative;display:grid;grid-template-columns:200px minmax(0,1fr) 340px;grid-template-rows:minmax(0,1fr);height:640px}
 .rail{padding:16px 10px;border-right:1px solid var(--line);overflow:auto;min-height:0;scrollbar-width:thin}
 .rh{margin:0 6px 9px;font:500 10.5px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--dim)}
@@ -111,6 +113,8 @@ h1 .dimmer{color:#7c7c7c}
 .pop-o{display:flex;flex-wrap:wrap;align-items:flex-start;gap:8px}
 .opt{position:relative;display:block;width:var(--ow,216px);border:0;background:none;padding:0;text-align:left;cursor:pointer;color:var(--mut);font:inherit}
 .th{position:relative;height:96px;border-radius:9px;background:#0d0d0e;border:1px solid var(--line2);overflow:hidden}
+.opt-label{display:grid;place-items:center;height:100%;padding:8px 10px;color:var(--fg);font-size:13px;text-align:center}
+.th.has-preview .opt-label{display:none}
 .opt:hover .th,.opt:focus-visible .th{border-color:rgba(255,255,255,.5)}
 .opt:focus-visible{outline:0}
 .opt.sel .th{border-color:var(--pink);box-shadow:0 0 0 1px var(--pink)}

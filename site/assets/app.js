@@ -23,6 +23,7 @@ const state = {
   project: null,
   screen: null,
   open: null, // id of the area whose options are showing
+  fromToolbar: false,
   preview: null, // { area, option } while an option is pointed at
   run: 0, // increases with every analysis; an answer for an older run is dropped
   retry: null,
@@ -142,11 +143,7 @@ const preview = new Preview(frame, {
   layout: placePop,
   dot: ({ id, keyboard }) => openArea(state.open === id ? null : id, keyboard),
   away: closePop,
-  escape: () => {
-    const id = state.open;
-    closePop();
-    if (id) preview.focusDot(id);
-  },
+  escape: dismissPop,
 });
 
 function syncStage() {
@@ -183,7 +180,7 @@ function renderPop() {
     const name = reason ? `${label}. ${reason}` : label;
     return `<button type="button" class="opt${selected ? ' sel' : ''}" data-option="${esc(option.id)}" aria-pressed="${selected}" aria-label="${esc(name)}" title="${esc(label)}">${
       option.suggested ? `<i class="star" title="${esc(reason)}">★</i>` : ''
-    }<div class="th">${option.keep ? `<span class="now">${esc(t('pop.now'))}</span>` : ''}</div></button>`;
+    }<div class="th"><span class="opt-label">${esc(label)}</span>${option.keep ? `<span class="now">${esc(t('pop.now'))}</span>` : ''}</div></button>`;
   }).join('')}</div>`;
   pop.className = 'pop show';
   pop.style.visibility = 'hidden';
@@ -229,11 +226,16 @@ let placing = false;
  */
 function placePop() {
   if (!state.open || placing) return;
-  const at = preview.place(state.open);
-  const hide = () => { pop.style.visibility = 'hidden'; };
-  if (!at) return hide();
   const W = document.documentElement.clientWidth;
   const H = document.documentElement.clientHeight;
+  let at = preview.place(state.open);
+  if (state.fromToolbar && (!at || at.dot.bottom <= 0 || at.dot.top >= H || at.dot.right <= 0 || at.dot.left >= W)) {
+    // The area can be off screen or absent from the selected version of its parent.
+    const trigger = toolbarButton(state.open)?.getBoundingClientRect();
+    if (trigger) at = { area: trigger, dot: trigger, port: trigger };
+  }
+  const hide = () => { pop.style.visibility = 'hidden'; };
+  if (!at) return hide();
   const { area: box, dot, port } = at;
   // What must stay in sight: the part, as far as it is shown, and its dot.
   const keep = {
@@ -291,10 +293,16 @@ function placePop() {
   pop.style.visibility = '';
 }
 
-function openArea(id, fromKeyboard = false) {
+function toolbarButton(id) {
+  return $('pips').querySelector(`[data-area="${CSS.escape(id)}"]`);
+}
+
+function openArea(id, fromKeyboard = false, fromToolbar = false) {
   state.open = id;
+  state.fromToolbar = Boolean(id && fromToolbar);
   state.preview = null;
   syncStage();
+  renderToolbar();
   renderPop();
   placePop();
   renderDiff();
@@ -304,6 +312,15 @@ function openArea(id, fromKeyboard = false) {
 function closePop() {
   if (!state.open && !state.preview) return;
   openArea(null);
+}
+
+function dismissPop() {
+  if (!state.open) return;
+  const id = state.open;
+  const fromToolbar = state.fromToolbar;
+  closePop();
+  if (fromToolbar) toolbarButton(id)?.focus();
+  else preview.focusDot(id);
 }
 
 // ---------- around it ----------
@@ -319,7 +336,7 @@ function renderToolbar() {
   for (const button of $('scheme').children) button.classList.toggle('on', button.dataset.s === state.scheme);
   const areas = state.screen?.analysis?.areas ?? [];
   const chosen = areas.filter((a) => state.screen.choices[a.id]).length;
-  $('pips').innerHTML = areas.map((a) => `<i class="${state.screen.choices[a.id] ? 'f' : ''}"></i>`).join('');
+  paint($('pips'), areas.map((a) => `<button type="button" data-area="${esc(a.id)}" class="${state.screen.choices[a.id] ? 'f' : ''}" aria-label="${esc(a.label)}" title="${esc(a.label)}" aria-controls="pop" aria-expanded="${a.id === state.open}"></button>`).join(''));
   // While a screen is still being written, the toolbar says what is on its way.
   const writing = state.screen?.status === 'loading';
   $('pcount').classList.toggle('busy', writing);
@@ -385,6 +402,7 @@ function renderAround() {
 function select(screen, { open = null } = {}) {
   state.screen = screen;
   state.open = open;
+  state.fromToolbar = false;
   state.preview = null;
   screen.assets.scheme = state.scheme;
   // With no pick anywhere the prompt speaks of the screen that is shown.
@@ -772,14 +790,19 @@ pop.addEventListener('click', (event) => {
   renderAround();
 });
 
+$('pips').addEventListener('click', (event) => {
+  const button = event.target.closest('[data-area]');
+  if (!button) return;
+  event.stopPropagation();
+  if (state.open === button.dataset.area) dismissPop();
+  else openArea(button.dataset.area, event.detail === 0, true);
+});
+
 document.addEventListener('click', (event) => {
   if (state.open && !event.target.closest('.pop')) closePop();
 });
 document.addEventListener('keydown', (event) => {
-  if (event.key !== 'Escape' || !state.open) return;
-  const id = state.open;
-  closePop();
-  preview.focusDot(id);
+  if (event.key === 'Escape') dismissPop();
 });
 window.addEventListener('resize', placePop);
 // The options stand still on the screen: they follow the part when anything scrolls.

@@ -175,8 +175,37 @@ export function projectCss(texts, tailwind) {
 
 const nonce = () => [...crypto.getRandomValues(new Uint8Array(12))].map((b) => b.toString(16).padStart(2, '0')).join('');
 
+// Each 20px dot also has 10px of clickable padding on every side.
+export function placeDot(left, top, width, height, occupied) {
+  const diameter = 20;
+  const spacing = diameter + 20;
+  const clamp = (value, extent) => Math.max(4, Math.min(value, extent - diameter - 4));
+  const x = clamp(left, width);
+  const y = clamp(top, height);
+  const free = (a, b) => occupied.every((dot) => Math.abs(dot.left - a) >= spacing || Math.abs(dot.top - b) >= spacing);
+  let best = { left: x, top: y };
+  if (!free(x, y)) {
+    // The nearest free spot lies along an edge of one or more occupied hit targets.
+    const xs = [x, ...occupied.flatMap((dot) => [dot.left - spacing, dot.left + spacing])];
+    const ys = [y, ...occupied.flatMap((dot) => [dot.top - spacing, dot.top + spacing])];
+    let nearest = Infinity;
+    for (const b of ys) {
+      if (b !== clamp(b, height)) continue;
+      for (const a of xs) {
+        if (a !== clamp(a, width)) continue;
+        const distance = (a - x) ** 2 + (b - y) ** 2;
+        if (distance < nearest && free(a, b)) {
+          best = { left: a, top: b };
+          nearest = distance;
+        }
+      }
+    }
+  }
+  return { ...best, right: best.left + diameter, bottom: best.top + diameter };
+}
+
 /** Runs inside the frame. It moves options into their places, draws the dots, and reports where things are. */
-function bridge() {
+function bridge(placeDot) {
   const config = window.__PE__;
   const say = (message) => parent.postMessage({ pe: config.token, ...message }, '*');
   const store = document.getElementById('pe-store');
@@ -355,6 +384,7 @@ function bridge() {
 
   // Links and forms of a mockup lead nowhere, but its controls answer (see `interact`).
   document.addEventListener('click', (event) => {
+    if (event.target.localName === 'pe-layer') return;
     if (event.target.closest?.('a, button, input[type=submit]')) event.preventDefault();
     if (!config.focus) interact(event.target);
     say({ type: 'away' });
@@ -419,6 +449,7 @@ function bridge() {
       const dot = document.createElement('button');
       dot.type = 'button';
       dot.setAttribute('aria-label', area.label);
+      dot.title = area.label;
       dot.addEventListener('click', (event) => {
         event.stopPropagation();
         say({ type: 'dot', id: area.id, keyboard: event.detail === 0 });
@@ -453,6 +484,7 @@ function bridge() {
   // frame, must not follow, or they slip away from under the pointer that is trying the option.
   let held = null;
   let size = '';
+  let previous = {};
   function draw() {
     const width = document.documentElement.clientWidth;
     const height = document.documentElement.clientHeight;
@@ -460,10 +492,15 @@ function bridge() {
       // The page is laid out anew at another size: where things were no longer says where they are.
       size = `${width} ${height}`;
       held = null;
+      previous = {};
     }
     const rects = {};
+    const occupied = [];
     let live = null;
-    for (const area of areas) {
+    // Reserve the open dot's position first so previewing an option cannot move its popup.
+    const current = areas.find((area) => area.id === view.open);
+    const ordered = current ? [current, ...areas.filter((area) => area !== current)] : areas;
+    for (const area of ordered) {
       let r = rect(area.id);
       const dot = dots.get(area.id);
       if (!r) {
@@ -472,19 +509,30 @@ function bridge() {
       }
       if (area.id === view.open) {
         live = r;
-        if (held?.id !== area.id) held = { id: area.id, left: r.left + window.scrollX, top: r.top + window.scrollY, right: r.right + window.scrollX, bottom: r.bottom + window.scrollY };
+        if (held?.id !== area.id) {
+          const prior = previous[area.id];
+          held = {
+            id: area.id,
+            left: r.left + window.scrollX, top: r.top + window.scrollY,
+            right: r.right + window.scrollX, bottom: r.bottom + window.scrollY,
+            dx: prior?.dot ? prior.dot.left - prior.right : -10,
+            dy: prior?.dot ? prior.dot.top - prior.top : -10,
+          };
+        }
         r = { left: held.left - window.scrollX, top: held.top - window.scrollY, right: held.right - window.scrollX, bottom: held.bottom - window.scrollY };
       }
       rects[area.id] = r;
-      const x = Math.max(4, Math.min(r.right - 10, width - 24));
-      const y = Math.max(4, r.top - 10);
-      const seen = r.bottom > 0 && r.top < height;
+      const seen = r.bottom > 0 && r.top < height && r.right > 0 && r.left < width;
       dot.style.display = seen ? '' : 'none';
-      dot.style.left = `${x}px`;
-      dot.style.top = `${y}px`;
+      if (!seen) continue;
+      const locked = area.id === view.open;
+      r.dot = placeDot(r.right + (locked ? held.dx : -10), r.top + (locked ? held.dy : -10), width, height, occupied);
+      occupied.push(r.dot);
+      dot.style.left = `${r.dot.left}px`;
+      dot.style.top = `${r.dot.top}px`;
       dot.className = `${view.chosen.includes(area.id) ? 'done' : ''} ${view.open === area.id ? 'open' : ''}`;
-      rects[area.id].dot = { left: x, top: y, right: x + 20, bottom: y + 20 };
     }
+    previous = rects;
     // The frame around the open area follows the area as it is, also while an option is tried.
     const open = live;
     outline.style.display = open ? 'block' : 'none';
@@ -531,7 +579,7 @@ function bridge() {
   say({ type: 'ready' });
 }
 
-const BRIDGE = `(${bridge.toString()})();`;
+const BRIDGE = `(${bridge.toString()})(${placeDot.toString()});`;
 
 /** What a frame shows of an analysis: the page, the options kept aside, and the areas they belong to. */
 function documentParts(analysis) {
@@ -710,7 +758,7 @@ export class Preview {
   /** Where an area and its dot are, in the coordinates of this page. */
   place(id) {
     const rects = this.layout?.rects?.[id];
-    if (!rects || !this.frame) return null;
+    if (!rects?.dot || !this.frame) return null;
     const at = this.frame.getBoundingClientRect();
     const k = this.scale;
     const shift = (r) => ({ left: r.left * k + at.left, top: r.top * k + at.top, right: r.right * k + at.left, bottom: r.bottom * k + at.top });
@@ -754,6 +802,7 @@ export function mountThumb(box, analysis, assets, areaId, choices, { width, heig
     const y = (h * scale < tall ? (tall - h * scale) / 2 : 0) - r.top * scale;
     frame.style.transform = `translate(${x}px,${y}px) scale(${scale})`;
     frame.style.visibility = '';
+    box.classList.add('has-preview');
     onFit?.(rect.bottom - rect.top);
   };
   window.addEventListener('message', listen);
