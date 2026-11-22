@@ -326,6 +326,27 @@ function bridge(placeDot, resolveOptions) {
       at.after(...nodes);
       placed.set(id, { option, nodes });
     }
+    if (config.site) reveal();
+  }
+
+  /**
+   * A live page is shown without its scripts, and many pages keep parts of themselves
+   * transparent until a script lets them fade in: a headline word by word, a section as it is
+   * scrolled to. Such parts are made visible. What is transparent and lies over the page (a
+   * menu, a tooltip, a dialog) is hidden for another reason and stays so.
+   */
+  function reveal() {
+    const over = (el) => {
+      for (let node = el; node && node !== document.body; node = node.parentElement) {
+        const position = getComputedStyle(node).position;
+        if (position === 'absolute' || position === 'fixed') return true;
+      }
+      return false;
+    };
+    for (const el of document.body.querySelectorAll('*:not([data-pe-shown])')) {
+      if (store.contains(el)) continue;
+      if (getComputedStyle(el).opacity === '0' && !over(el)) el.setAttribute('data-pe-shown', '');
+    }
   }
 
   function rect(id) {
@@ -729,7 +750,7 @@ export function buildDocument(analysis, assets, { token, choices = {}, focus = n
   const styles = assets.tailwind
     ? `<script nonce="${n}" src="${TAILWIND}" crossorigin="anonymous"></script><style type="text/tailwindcss">${sheet}</style>`
     : `<style>${sheet}</style>`;
-  const config = { token, focus, choices, layout: parts.layout };
+  const config = { token, focus, choices, layout: parts.layout, site: Boolean(assets.site) };
   // A project with a dark variant is shown dark unless light was asked for.
   const root = assets.dark && assets.scheme !== 'light' ? ' class="dark" data-theme="dark" style="color-scheme:dark"' : '';
   const carried = (attributes) => Object.entries(attributes ?? {})
@@ -743,7 +764,7 @@ export function buildDocument(analysis, assets, { token, choices = {}, focus = n
       + '<style>@layer pe-base{svg[data-icon]{width:1em;height:1em}}</style>'
       + `<style>${sheet}</style>`
       // After the page's own styles: the page scrolls as a whole, whatever they say.
-      + `<style>html{overflow:auto!important}body{overflow:visible!important}${focus ? 'html{scrollbar-width:none}*{animation:none!important;transition:none!important}' : ''}</style>`
+      + `<style>html{overflow:auto!important}body{overflow:visible!important}[data-pe-shown]{opacity:1!important;transform:none!important;filter:none!important}${focus ? 'html{scrollbar-width:none}*{animation:none!important;transition:none!important}' : ''}</style>`
       + `</head><body${carried(assets.site.body)}>${parts.page}`
       + `<div id="pe-store" style="display:none!important">${parts.store}</div>`
       + `<script nonce="${n}">window.__PE__=${JSON.stringify(config).replace(/</g, '\\u003c')};${BRIDGE}</script>`
