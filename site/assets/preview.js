@@ -772,7 +772,7 @@ export function buildDocument(analysis, assets, { token, choices = {}, focus = n
       + '<style>@layer pe-base{svg[data-icon]{width:1em;height:1em}}</style>'
       + `<style>${sheet}</style>`
       // After the page's own styles: the page scrolls as a whole, whatever they say.
-      + `<style>html{overflow:auto!important}body{overflow:visible!important}[data-pe-shown]{opacity:1!important;transform:none!important;filter:none!important}${focus ? 'html{scrollbar-width:none}*{animation:none!important;transition:none!important}' : ''}</style>`
+      + `<style>html{overflow:auto!important}body{overflow:visible!important}html,body{overflow-anchor:none!important}[data-pe-shown]{opacity:1!important;transform:none!important;filter:none!important}${focus ? 'html{scrollbar-width:none}*{animation:none!important;transition:none!important}' : ''}</style>`
       + `</head><body${carried(assets.site.body)}>${parts.page}`
       + `<div id="pe-store" style="display:none!important">${parts.store}</div>`
       + `<script nonce="${n}">window.__PE__=${JSON.stringify(config).replace(/</g, '\\u003c')};${BRIDGE}</script>`
@@ -786,7 +786,9 @@ export function buildDocument(analysis, assets, { token, choices = {}, focus = n
     + '<style>@layer pe-base{svg[data-icon]{width:1em;height:1em}}</style>'
     // An app that scrolls inside a pane of its own locks the page (body{overflow:hidden}); drawn
     // without the pane's fixed height, the page itself has to scroll.
-    + `<style>html,body{margin:0}html{overflow:auto!important}body{overflow:visible!important}[data-picture]{display:inline-block;background:rgba(128,128,128,.22);min-width:1em;min-height:1em}svg:not([width]):not([class]):not([style]){width:1em;height:1em}${focus ? 'html{scrollbar-width:none}*{animation:none!important;transition:none!important}' : ''}</style>`
+    // When a part of the page changes its height (an option is tried), the browser would scroll
+    // to keep what is below it in place; the part that is being looked at would move instead.
+    + `<style>html,body{margin:0;overflow-anchor:none!important}html{overflow:auto!important}body{overflow:visible!important}[data-picture]{display:inline-block;background:rgba(128,128,128,.22);min-width:1em;min-height:1em}svg:not([width]):not([class]):not([style]){width:1em;height:1em}${focus ? 'html{scrollbar-width:none}*{animation:none!important;transition:none!important}' : ''}</style>`
     + (analysis.conversation ? '<style>:where([data-chat-composer] textarea){width:100%;box-sizing:border-box}</style>' : '')
     + styles
     + `</head><body>${parts.page}`

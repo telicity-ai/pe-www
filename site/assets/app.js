@@ -245,6 +245,9 @@ function placePop() {
     pop.style.visibility = 'hidden';
     return;
   }
+  // While an option is being tried the options stay where they are, whatever the page does:
+  // moved from under the pointer, the option would be let go of, and the page would change back.
+  if (state.preview && pop.style.visibility !== 'hidden') return;
   const W = document.documentElement.clientWidth;
   const H = document.documentElement.clientHeight;
   let at = preview.place(state.open);
