@@ -20,6 +20,7 @@ function checkFixture(t, file) {
 
 const browserTest = { skip: chrome ? false : 'Chrome unavailable' };
 test('preview keeps sidebar space and empty-state alignment with their content', browserTest, (t) => checkFixture(t, 'preview-layout.html'));
+test('source-defined section grids keep controls in their content cell', browserTest, (t) => checkFixture(t, 'preview-section.html'));
 test('only areas reachable in the selected layout contribute to progress', browserTest, (t) => checkFixture(t, 'preview-areas.html'));
 
 test('nested areas sharing the top-right corner have separate, clickable markers', () => {

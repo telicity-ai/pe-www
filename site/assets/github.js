@@ -340,6 +340,24 @@ export function themeFromConfig(source) {
   return lines.length || dark ? `${dark}@theme inline {\n${[...new Set(lines)].join('\n')}\n}` : '';
 }
 
+// A section component that puts a heading and a single wrapper around {children}
+// defines two grid cells even when the caller supplies a whole list of rows.
+export function sectionGrids(sources) {
+  const grids = new Map();
+  const template = /<section\s+className\s*=\s*["']([^"'<>]+)["']\s*>\s*<(h[1-6])\b[^>]*>\s*\{\s*[\w.]+\s*\}\s*<\/\2>\s*<div\s+className\s*=\s*["']([^"'<>]+)["']\s*>\s*\{\s*(?:props\.)?children\s*\}\s*<\/div>\s*<\/section>/g;
+  for (const source of sources) {
+    if (!source) continue;
+    for (const [, outer, heading, bodyClass] of source.matchAll(template)) {
+      const classes = outer.trim().split(/\s+/);
+      if (!classes.includes('grid') || !classes.some((c) => /(?:^|:)grid-cols-/.test(c))) continue;
+      const key = `${classes.slice().sort().join(' ')}|${heading}`;
+      if (!grids.has(key)) grids.set(key, { classes, heading, bodyClass });
+      else if (grids.get(key)?.bodyClass !== bodyClass) grids.set(key, null);
+    }
+  }
+  return [...grids.values()].filter(Boolean);
+}
+
 /**
  * Everything a screen is drawn with.
  *   related: the components it renders (its own imports, then theirs) and the layouts around it;
@@ -413,6 +431,7 @@ export async function collectFiles(scan, path) {
     styles: [...sheets.slice(0, 3), ...(config ? [config] : [])],
     assets: {
       css,
+      sectionGrids: sectionGrids([main, ...sources, ...holderSources]),
       tailwind: scan.stack.includes('Tailwind CSS') || Boolean(config) || /@tailwind\b|@import\s+["']tailwindcss/.test(all),
       dark: /(^|[\s,{}(])\.dark\b|\[data-theme=["']?dark/.test(all),
     },

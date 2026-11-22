@@ -1,0 +1,40 @@
+<!doctype html>
+<meta charset="utf-8">
+<div id="stage"></div>
+<output></output>
+<script type="module">
+import { sectionGrids } from '../../site/assets/github.js';
+import { sanitize } from '../../site/assets/preview.js';
+
+const classes = 'grid gap-x-10 sm:grid-cols-[6rem_minmax(0,1fr)]';
+const templates = sectionGrids([`<section className="${classes}">
+  <h2 className="text-sm">{title}</h2>
+  <div className="min-w-0">{children}</div>
+</section>`]);
+const stage = document.querySelector('#stage');
+const section = (rows) => `<section class="${classes}"><h2>Projects</h2>${rows}</section>`;
+const group = '<fieldset disabled="false"><button disabled>Select all</button><button>Select none</button></fieldset>';
+const html = section('<div>Import projects</div>' + group);
+const failures = [];
+function check(condition, message) {
+  if (!condition) failures.push(message);
+}
+stage.innerHTML = sanitize(html, null, [], templates);
+check(stage.querySelector('section').childElementCount === 2, 'Rows took additional grid cells');
+check(stage.querySelector('h2 + .min-w-0 > fieldset'), 'Selection controls fell outside the content column');
+check(stage.querySelector('button:first-child:disabled') && stage.querySelector('button:last-child:enabled'), 'The fieldset disabled both actions');
+check(sanitize(stage.innerHTML, null, [], templates) === stage.innerHTML, 'An intact content cell was wrapped again');
+
+const slots = [];
+stage.innerHTML = sanitize(section('<pe-area id="controls"></pe-area>'), null, slots, templates);
+check(slots.join() === 'controls' && stage.querySelector('.min-w-0')?.firstChild?.data === 'pe-area:controls', 'An option lost its place in the column');
+stage.innerHTML = sanitize(html);
+check(stage.querySelector('section > fieldset'), 'A grid without a matching source component was changed');
+stage.innerHTML = sanitize(section('<div>Row</div><div class="sm:col-span-full">Footer</div>'), null, [], templates);
+check(stage.querySelector('section').childElementCount === 3, 'An explicitly positioned item was moved');
+const action = 'data-slot="button" class="inline-flex h-7 rounded-md';
+stage.innerHTML = sanitize(`<button ${action}">Select all</button><button ${action} whitespace-normal">Two lines</button>`);
+check(stage.firstElementChild.classList.contains('whitespace-nowrap'), 'A fixed-height action can still wrap');
+check(!stage.lastElementChild.classList.contains('whitespace-nowrap'), 'An intentional wrap was overwritten');
+document.querySelector('output').textContent = failures.join(', ') || 'passed';
+</script>

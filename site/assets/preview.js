@@ -40,6 +40,11 @@ function cleanElement(el) {
         child.removeAttribute(attribute.name);
         continue;
       }
+      // Generated JSX booleans can arrive as strings. Any disabled attribute, even
+      // disabled="false", disables a native control or every control in a fieldset.
+      if (name === 'disabled' && attribute.value === 'false' && child.matches('button, fieldset, input, select, textarea, option, optgroup')) {
+        child.removeAttribute(name);
+      }
       // Nothing is fetched from a style attribute either.
       if (name === 'style' && /url\s*\(|expression\s*\(|@import|\\/i.test(attribute.value)) child.removeAttribute(attribute.name);
     }
@@ -83,6 +88,28 @@ const TEXT_SIZE = /^text-(?:xs|sm|base|lg|[2-9]?xl|\[\d)/;
 const OWN_PLACE = /^(?:m|mx|ml|mr|ms|me)-|^self-|^justify-self-|^place-self-|^absolute$|^fixed$/;
 const ALIGNED = /^(?:items|place-items|justify-items)-/;
 
+function restoreSectionGrids(root, templates) {
+  if (!templates?.length) return;
+  for (const section of root.querySelectorAll('section.grid')) {
+    const [heading, first, ...rest] = section.children;
+    if (!first || (!rest.length && first.localName !== 'pe-area')) continue;
+    const template = templates.find((t) => t.heading === heading.localName
+      && t.classes.length === section.classList.length && t.classes.every((c) => section.classList.contains(c)));
+    if (!template) continue;
+    // An alternative can deliberately give individual children their own grid positions.
+    if ([first, ...rest].some((el) => el.matches('h1,h2,h3,h4,h5,h6') || el.style.gridColumn || el.style.gridRow
+        || has(classes(el), /^(?:col|row)-(?:span|start|end|auto|\[)/))) continue;
+    if (first.localName === 'div' && first.className === template.bodyClass) {
+      while (first.nextSibling) first.append(first.nextSibling);
+    } else {
+      const body = root.ownerDocument.createElement('div');
+      body.className = template.bodyClass;
+      while (heading.nextSibling) body.append(heading.nextSibling);
+      section.append(body);
+    }
+  }
+}
+
 /**
  * What a model tends to drop when it copies markup: a button's size classes (it then touches its
  * own border), and the margin that centers a column of limited width.
@@ -117,6 +144,12 @@ function repair(root, decision) {
     const styled = has(list, /^(?:border|bg-|rounded|shadow)/);
     const square = has(list, /^(?:size-|w-|aspect-|rounded-full$)/);
     if (!styled || square || !el.textContent.trim()) continue;
+    // A single-line action with a fixed height has no room for a second line.
+    if (el.matches('button[data-slot="button"].inline-flex') && list.some((c) => /^h-\d+(?:\.\d+)?$/.test(c))
+        && !el.style.whiteSpace && !has(list, /^(?:whitespace-|text-(?:wrap|balance|pretty)|break-|h-(?:auto|fit)|truncate$)/)
+        && !el.querySelector('br') && [...el.children].every((child) => child.localName === 'svg')) {
+      list.push('whitespace-nowrap');
+    }
     if (!has(list, PADDING)) list.push('px-3');
     if (!has(list, TEXT_SIZE)) list.push('text-sm');
     if (!has(list, /^font-(?:thin|light|normal|medium|semibold|bold|extrabold|black)$/)) list.push('font-medium');
@@ -152,10 +185,11 @@ function repair(root, decision) {
  * Markup from an analysis, reduced to what is safe to draw. A <pe-area id> becomes the comment
  * <!--pe-area:id-->, which marks a place without being an element that styles could count.
  */
-export function sanitize(html, decision, slots) {
+export function sanitize(html, decision, slots, sectionGrids) {
   const doc = parseMarkup(html);
   cleanElement(doc.body);
   for (const svg of doc.body.querySelectorAll('svg[data-icon]')) drawIcon(svg);
+  restoreSectionGrids(doc.body, sectionGrids);
   repair(doc.body, decision);
   for (const slot of [...doc.body.querySelectorAll('pe-area')]) {
     const id = (slot.getAttribute('id') ?? '').replace(/[^a-z0-9-]/gi, '');
@@ -618,14 +652,14 @@ const BRIDGE = `(${bridge.toString()})(${placeDot.toString()},${resolveOptions.t
 const layouts = new WeakMap();
 
 /** What a frame shows of an analysis: the page, the options kept aside, and the areas they belong to. */
-function documentParts(analysis) {
+function documentParts(analysis, sectionGrids) {
   const roots = [];
-  const page = sanitize(analysis.page, null, roots);
+  const page = sanitize(analysis.page, null, roots, sectionGrids);
   const store = [];
   const areas = analysis.areas.map((area) => {
     const options = area.options.map((option) => {
       const slots = [];
-      const html = sanitize(option.html, option.keep ? area.decision : null, slots);
+      const html = sanitize(option.html, option.keep ? area.decision : null, slots, sectionGrids);
       store.push(`<div data-pe-option="${area.id} ${option.id}">${html}</div>`);
       return { id: option.id, slots };
     });
@@ -647,7 +681,7 @@ export function activeAreas(analysis, choices) {
  * The whole document of a frame. `assets` are the project's stylesheets and how to treat them;
  * `choices` says which option stands in each area; `focus` makes it a thumbnail of one area.
  */
-export function buildDocument(analysis, assets, { token, choices = {}, focus = null, parts = documentParts(analysis) }) {
+export function buildDocument(analysis, assets, { token, choices = {}, focus = null, parts = documentParts(analysis, assets.sectionGrids) }) {
   const n = nonce();
   const csp = [
     "default-src 'none'",
@@ -739,7 +773,7 @@ export class Preview {
     this.pending = null;
     this.ready = false;
     this.changed = null;
-    const parts = documentParts(analysis);
+    const parts = documentParts(analysis, assets.sectionGrids);
     this.drawn = JSON.stringify(parts);
     const frame = makeFrame(title);
     frame.srcdoc = buildDocument(analysis, assets, { token: this.token, choices, parts });
@@ -753,7 +787,7 @@ export class Preview {
     if (!this.frame || !this.loaded) return;
     this.loaded.analysis = analysis;
     this.loaded.choices = choices;
-    const parts = documentParts(analysis);
+    const parts = documentParts(analysis, this.loaded.assets.sectionGrids);
     const drawn = JSON.stringify(parts);
     if (drawn === this.drawn) return;
     this.drawn = drawn;
