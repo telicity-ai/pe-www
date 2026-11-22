@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { ElementScan, Reader, SOURCE_CODE, Variant, findElement, findStart, planChoice, repeatedLine } from '../api/_lib/answer.js';
+import { ElementScan, Reader, SOURCE_CODE, Variant, findElement, findStart, isCompleteConversation, planChoice, repeatedLine } from '../api/_lib/answer.js';
 import { DECISIONS, PATTERNS } from '../api/_lib/catalog.js';
 import { screenTask, systemPrompt, variantTask } from '../api/_lib/brief.js';
+import { conversationParts } from '../site/assets/github.js';
 import { newBoard, take } from '../site/assets/board.js';
 
 /** Feeds text to a reader in pieces of `size` characters and returns what it made of it. */
@@ -183,4 +184,19 @@ test('a beginning copied from the source (JSX) is found in the page', () => {
   const at = (anchor) => { const found = findElement(page, anchor); return found && page.slice(found.from, found.to); };
   assert.equal(at('<div data-provider-detail className="min-w-0"><ScrollArea className="h-full">'), '<div data-provider-detail class="min-w-0">B</div>');
   assert.equal(at('<div inert={!canWrite} aria-disabled={!canWrite || undefined} className="flex shrink-0 gap-2">'), '<div inert="false" class="flex shrink-0 gap-2">A</div>');
+});
+
+test('open conversation previews require the title above messages and a separate composer below', () => {
+  const column = '<div data-chat-column class="flex flex-col">';
+  const header = '<header data-chat-header>Release notes</header>';
+  const history = '<main role="log"><p>What changed?</p><p>The search is faster now.</p></main>';
+  const composer = '<footer data-chat-composer><textarea placeholder="Reply"></textarea></footer>';
+  assert.equal(isCompleteConversation(column + header + history + composer + '</div>'), true);
+  assert.equal(isCompleteConversation(column + header + history.replace('<p>', '<div><p>') + composer + '</div>'), true);
+  for (const body of [header + composer, history + header + composer, header + '<div>' + history + composer + '</div>',
+    header + '<main role="log"><p>Load earlier turns</p></main>' + composer, header + history + composer.slice(0, -9)]) {
+    assert.equal(isCompleteConversation(column + body + '</div>'), false);
+  }
+  assert.deepEqual(conversationParts('return <><ChatHeader/><ThreadTimeline/><ChatComposer/></>'), ['ChatHeader', 'ThreadTimeline', 'ChatComposer']);
+  assert.deepEqual(conversationParts('import { ChatComposer } from "./ChatComposer"; return <ThreadTimeline/>'), []);
 });

@@ -204,6 +204,34 @@ export class ElementScan {
 }
 
 
+/** A populated conversation has a title, messages and a composer, in order. */
+export function isCompleteConversation(page) {
+  const column = /<div\b[^>]*\sdata-chat-column(?=[\s=>])[^>]*>/i.exec(page);
+  if (!column) return false;
+  let body = page.slice(column.index + column[0].length).trimStart();
+  for (const opening of [
+    /^<header\b[^>]*\sdata-chat-header(?=[\s=>])[^>]*>/i,
+    /^<main\b[^>]*\srole=["']log["'][^>]*>/i,
+    /^<footer\b[^>]*\sdata-chat-composer(?=[\s=>])[^>]*>/i,
+  ]) {
+    const tag = opening.exec(body)?.[0];
+    if (!tag) return false;
+    // A closing landmark also closes any inner div the model left open in
+    // HTML. Counting divs here would reject pages the browser lays out correctly.
+    const name = /^<(\w+)/.exec(tag)[1].toLowerCase();
+    const close = `</${name}>`;
+    const end = body.toLowerCase().indexOf(close, tag.length);
+    if (end < 0) return false;
+    const region = body.slice(tag.length, end);
+    const texts = [...region.matchAll(/(?:^|>)([^<>]+)(?=<|$)/g)].map((m) => m[1].trim()).filter(Boolean);
+    if (name === 'header' && !texts.length) return false;
+    if (name === 'main' && texts.length < 2) return false;
+    if (name === 'footer' && !/<textarea\b/i.test(region)) return false;
+    body = body.slice(end + close.length).trimStart();
+  }
+  return /^<\/div\s*>/i.test(body);
+}
+
 /**
  * Where in `page` the element begins whose beginning is `anchor` (its opening tag and what
  * follows, as the one who writes the page says it): an offset, or -1. With `exact`, only the

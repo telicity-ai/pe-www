@@ -463,7 +463,18 @@ function bridge(placeDot, resolveOptions) {
   if (config.focus) {
     // A thumbnail: report where the one area is, scrolled into sight, until the styles have
     // settled. Timers, not frames: a frame that is not shown yet gets few of them.
-    const first = () => placed.get(config.focus)?.nodes.find((n) => n.nodeType === 1);
+    // Preserve the area's layout and backdrop, but keep adjacent messages or
+    // controls out of the padding around a short option in a taller card.
+    const nodes = placed.get(config.focus)?.nodes ?? [];
+    let branch = nodes.filter((n) => n.nodeType === 1);
+    while (branch.length && branch[0].parentElement && branch[0].parentElement !== document.documentElement) {
+      const parent = branch[0].parentElement;
+      for (const sibling of parent.children) {
+        if (!branch.includes(sibling)) sibling.style.setProperty('visibility', 'hidden', 'important');
+      }
+      branch = [parent];
+    }
+    const first = () => nodes.find((n) => n.nodeType === 1);
     const started = Date.now();
     let changed = started;
     let last = '';
@@ -710,6 +721,7 @@ export function buildDocument(analysis, assets, { token, choices = {}, focus = n
     // An app that scrolls inside a pane of its own locks the page (body{overflow:hidden}); drawn
     // without the pane's fixed height, the page itself has to scroll.
     + `<style>html,body{margin:0}html{overflow:auto!important}body{overflow:visible!important}[data-picture]{display:inline-block;background:rgba(128,128,128,.22);min-width:1em;min-height:1em}svg:not([width]):not([class]):not([style]){width:1em;height:1em}${focus ? 'html{scrollbar-width:none}*{animation:none!important;transition:none!important}' : ''}</style>`
+    + (analysis.conversation ? '<style>:where([data-chat-composer] textarea){width:100%;box-sizing:border-box}</style>' : '')
     + styles
     + `</head><body>${parts.page}`
     + `<div id="pe-store" style="display:none!important">${parts.store}</div>`
@@ -869,7 +881,7 @@ export function mountThumb(box, analysis, assets, areaId, choices, { width, heig
   const frame = makeFrame('');
   frame.setAttribute('tabindex', '-1');
   frame.setAttribute('aria-hidden', 'true');
-  frame.style.cssText = `position:absolute;left:0;top:0;border:0;width:${width}px;height:${height}px;transform-origin:0 0;pointer-events:none;visibility:hidden`;
+  frame.style.cssText = `position:absolute;left:0;top:50%;border:0;width:${width}px;height:${height}px;transform-origin:0 0;pointer-events:none;visibility:hidden`;
   frame.srcdoc = buildDocument(analysis, assets, { token, choices, focus: areaId });
   let lastRect = null;
   const listen = (event) => {
@@ -890,7 +902,7 @@ export function mountThumb(box, analysis, assets, areaId, choices, { width, heig
     const tall = Math.max(44, Math.min(h * scale, maxHeight));
     box.style.height = `${Math.round(tall)}px`;
     const x = (box.clientWidth - w * scale) / 2 - r.left * scale;
-    const y = (h * scale < tall ? (tall - h * scale) / 2 : 0) - r.top * scale;
+    const y = Math.max(0, (tall - h * scale) / 2) - r.top * scale - tall / 2;
     frame.style.transform = `translate(${x}px,${y}px) scale(${scale})`;
     frame.style.visibility = '';
     box.classList.add('has-preview');

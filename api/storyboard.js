@@ -19,8 +19,9 @@
 // One call to the model writes the whole page, so that the page is of one piece. As soon as the
 // element of an area is written, that element goes to calls of their own, one for each option:
 // a person waits for the page and a little longer, not for everything in a row.
-import { ElementScan, LIMITS, Reader, SOURCE_CODE, Variant, clean, findElement, findStart, markup, repeatedLine, planChoice, slug } from './_lib/answer.js';
+import { ElementScan, LIMITS, Reader, SOURCE_CODE, Variant, clean, findElement, findStart, isCompleteConversation, markup, repeatedLine, planChoice, slug } from './_lib/answer.js';
 import { areasTask, filesPrompt, screenTask, systemPrompt, variantTask } from './_lib/brief.js';
+import { conversationParts } from '../site/assets/github.js';
 import { MODEL, SolarError, ask } from './_lib/solar.js';
 
 const DEFAULT_ORIGINS = ['https://telicity-ai.github.io'];
@@ -131,17 +132,17 @@ function clip(text, max, keepEnd) {
   return { text: `${text.slice(0, head)}\n\n/* … the middle of this file is left out … */\n\n${text.slice(text.length - (max - head))}`, truncated: true };
 }
 
-async function readFile(repo, ref, path, max, keepEnd) {
+async function readFile(repo, ref, path, max, keepEnd, screen = false) {
   const encoded = [...ref.split('/'), ...path.split('/')].map(encodeURIComponent).join('/');
   const result = await fetchText(`https://raw.githubusercontent.com/${repo}/${encoded}`, 10_000);
   if (result.status !== 200) return { path, status: result.status };
   if (result.text.includes('\u0000')) return { path, status: 415 };
-  return { path, status: 200, ...clip(result.text, max, keepEnd) };
+  return { path, status: 200, ...(screen ? { conversation: conversationParts(result.text) } : {}), ...clip(result.text, max, keepEnd) };
 }
 
 async function readFiles({ repo, ref, path, rel, css }) {
   const [main, ...others] = await Promise.all([
-    readFile(repo, ref, path, SCREEN_CHARS, true),
+    readFile(repo, ref, path, SCREEN_CHARS, true, true),
     ...rel.map((p) => readFile(repo, ref, p, RELATED_CHARS, true)),
     ...css.map((p) => readFile(repo, ref, p, STYLE_CHARS, false)),
   ]);
@@ -179,6 +180,7 @@ async function draw({ query, files, styles, send: pass, signal: outer, again = f
   let looped = null;
   const started = Date.now();
   const at = () => Date.now() - started;
+  const conversation = files[0].conversation;
   const system = systemPrompt(query.lang);
   const sources = filesPrompt({ ...query, files, styles });
   const messages = (task) => [{ role: 'system', content: system }, { role: 'user', content: `${sources}\n\n${task}` }];
@@ -257,6 +259,9 @@ async function draw({ query, files, styles, send: pass, signal: outer, again = f
     if (to === page.length && cut && to - from > page.length * 0.7) return;
     const html = markup(page.slice(from, to), AREA_CHARS + 1);
     if (!/<[a-z]/i.test(html) || html.length > AREA_CHARS) return;
+    // Conditional status bars sometimes expand to an empty div. They have no
+    // visible target for the marker, even when their alternatives contain content.
+    if (conversation.length && !html.replace(/<[^>]*>/g, '').trim() && !/<(?:button|textarea|input|img|svg)\b/i.test(html)) return;
     area.today = html;
     marks[area.id] = at();
     flush();
@@ -363,7 +368,7 @@ async function draw({ query, files, styles, send: pass, signal: outer, again = f
   let result;
   try {
     // A model caught in a loop gets out of it more easily with a little more chance.
-    result = await ask({ messages: messages(screenTask(again, repeated)), maxTokens: PAGE_TOKENS, signal, onText: (piece) => reader.push(piece), ...(again === 'loop' ? { temperature: 0.6 } : {}) });
+    result = await ask({ messages: messages(screenTask(again, repeated, conversation)), maxTokens: PAGE_TOKENS, signal, onText: (piece) => reader.push(piece), ...(again === 'loop' ? { temperature: 0.6 } : {}) });
   } catch (error) {
     live = false;
     outer.removeEventListener('abort', stop);
@@ -388,7 +393,13 @@ async function draw({ query, files, styles, send: pass, signal: outer, again = f
   calls.unshift({ kind: 'page', ms: result.ms, first: result.firstMs, finish: result.finish, chars: result.chars, ...tokens(result.usage) });
   if (phase === 'plan' || phase === 'css' || !page) throw new Failure(502, 'model_error', 'The answer has no page');
   endPage();
-  send({ t: 'screen', title: clean(title, 48) ?? '', summary: clean(summary, 220) ?? '' });
+  if (conversation.length && !isCompleteConversation(page)) {
+    live = false;
+    own.abort();
+    await Promise.all(jobs);
+    throw new Again('conversation');
+  }
+  send({ t: 'screen', ...(conversation.length ? { conversation: true } : {}), title: clean(title, 48) ?? '', summary: clean(summary, 220) ?? '' });
   const planned = [...areas];
   if (!areas.some((area) => area.today) && !signal.aborted) {
     // None of the areas that were planned is in the page as it was written (it was cut off before

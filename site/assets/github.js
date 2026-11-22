@@ -358,6 +358,15 @@ export function sectionGrids(sources) {
   return [...grids.values()].filter(Boolean);
 }
 
+// Full thread views render these three components together. Their optional banners
+// and secondary panes are not a substitute for the conversation itself.
+export function conversationParts(source) {
+  const header = source.match(/<(ChatHeader|ThreadHeader)\b/);
+  const history = source.match(/<(ThreadTimeline|MessagesTimeline|MessageList|ChatTimeline)\b/);
+  const composer = source.match(/<(ChatComposer|MessageComposer)\b/);
+  return header && history && composer ? [header[1], history[1], composer[1]] : [];
+}
+
 /**
  * Everything a screen is drawn with.
  *   related: the components it renders (its own imports, then theirs) and the layouts around it;
@@ -377,6 +386,8 @@ export async function collectFiles(scan, path) {
   if (!main) return empty;
 
   const first = importsOf(path, main, pathSet, scan.paths);
+  const conversation = conversationParts(main);
+  const conversationFiles = first.filter((p) => conversation.includes(p.split('/').pop().split('.')[0]));
   const components = first.filter((p) => UI.test(p)).sort((a, b) => size(b) - size(a)).slice(0, 8);
   const layouts = layoutsOf(path, pathSet);
   // A route file is often three lines around one component: what that component renders is in its own imports.
@@ -400,7 +411,7 @@ export async function collectFiles(scan, path) {
 
   const related = [];
   let budget = 260_000;
-  for (const candidate of [...layouts, ...small, ...components, ...deeper]) {
+  for (const candidate of [...layouts, ...conversationFiles, ...small, ...components, ...deeper]) {
     if (candidate === path || related.includes(candidate) || related.length >= 15) continue;
     const cost = Math.min(size(candidate), 100_000);
     if (cost > budget) continue;
@@ -431,6 +442,7 @@ export async function collectFiles(scan, path) {
     styles: [...sheets.slice(0, 3), ...(config ? [config] : [])],
     assets: {
       css,
+      conversation: conversation.length > 0,
       sectionGrids: sectionGrids([main, ...sources, ...holderSources]),
       tailwind: scan.stack.includes('Tailwind CSS') || Boolean(config) || /@tailwind\b|@import\s+["']tailwindcss/.test(all),
       dark: /(^|[\s,{}(])\.dark\b|\[data-theme=["']?dark/.test(all),

@@ -110,9 +110,9 @@ h1 .dimmer{color:#7c7c7c}
 .pop--col{max-width:none}
 .pop--col .pop-o{flex-direction:column;flex-wrap:nowrap}
 .pop--col .pop-h{max-width:172px}
-.pop-o{display:flex;flex-wrap:wrap;align-items:flex-start;gap:8px}
-.opt{position:relative;display:block;width:var(--ow,216px);border:0;background:none;padding:0;text-align:left;cursor:pointer;color:var(--mut);font:inherit}
-.th{position:relative;height:96px;border-radius:9px;background:#0d0d0e;border:1px solid var(--line2);overflow:hidden}
+.pop-o{display:flex;flex-wrap:wrap;align-items:stretch;gap:8px}
+.opt{position:relative;display:flex;flex-direction:column;width:var(--ow,216px);border:0;background:none;padding:0;text-align:left;cursor:pointer;color:var(--mut);font:inherit}
+.th{position:relative;width:100%;flex:1 0 auto;height:96px;border-radius:9px;background:#0d0d0e;border:1px solid var(--line2);overflow:hidden}
 .opt-label{display:grid;place-items:center;height:100%;padding:8px 10px;color:var(--fg);font-size:13px;text-align:center}
 .th.has-preview .opt-label{display:none}
 .opt:hover .th,.opt:focus-visible .th{border-color:rgba(255,255,255,.5)}

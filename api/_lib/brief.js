@@ -101,7 +101,7 @@ ${TODAY_HTML}
 
 /** The call that writes the screen: which areas there are, then the whole page with each area marked in it. */
 /** `again` says why the screen is asked for again: 'source', 'short', 'loop' or 'unplaced'. */
-export function screenTask(again = null, repeated = null) {
+export function screenTask(again = null, repeated = null, conversation = []) {
   return `TASK: THE SCREEN AND ITS AREAS
 
 Answer in exactly this form. ${FORM}
@@ -135,6 +135,16 @@ THE PAGE
 
 EXAMPLE (shortened)
 ${SCREEN_EXAMPLE}
+
+${conversation.length ? `THIS SCREEN IS AN OPEN CONVERSATION
+The source renders ${conversation.join(', ')}. Render a normal populated thread. Use this exact outer structure for the static preview, with three direct children in this order:
+<div data-chat-column class="flex h-dvh min-w-0 flex-col overflow-hidden bg-background text-foreground">
+<header data-chat-header class="flex shrink-0 items-center gap-2 px-4 py-2">an actual example thread title and its compact controls</header>
+<main role="log" class="min-h-0 flex-1 overflow-y-auto"><div class="chat-content-lane mx-auto w-full px-4 py-4">a short realistic user message and a concrete assistant reply as separate visible blocks, in the product's styling</div></main>
+<footer data-chat-composer class="shrink-0"><div class="chat-composer-lane mx-auto w-full px-4 pb-3">the source's composer surface with a textarea and its visible actions</div></footer>
+</div>
+${again === 'conversation' ? 'The previous answer lost or misplaced part of the conversation. Copy the three sibling tags and their identifying attributes exactly. Finish each before starting the next.' : ''}
+Replace the descriptions with finished HTML. Keep the title, both messages and the input visible in the first viewport. Choose areas inside the timeline and composer with visible content, such as the message presentation or action group. Omit collapsed, empty or conditional handoff, queue, search and history-loading controls. Skip unrelated panels. Keep the HTML short enough to finish the composer.` : ''}
 
 ${CHECK}
 - Every area of your plan has its element in the page, beginning as its @@AREA line says, and its @@WHERE line after the page.${again === 'short' ? '\n\nYour last answer stopped in the middle of the page. Write the page to its end, then the @@WHERE lines, @@TITLE, @@SUMMARY and @@END.' : again === 'source' ? '\n\nYour last answer had the project\'s source code in the page (className, component tags such as <Button>, expressions in braces). Write HTML.' : again === 'unplaced' ? '\n\nIn your last answer no area could be found in the page: the page ran out before them, or they did not begin as their @@AREA lines said. Pick areas in the upper part of the screen, write their opening tags in HTML (class, not className; no expressions in braces) and begin their elements in the page with exactly those characters.' : ''}${again === 'loop' ? '\n\nYour last answer wrote the same line over and over' + (repeated ? `, this one:\n${repeated.slice(0, 300)}\nWrite it once at most, and` : '. Write each element of the page once, and') + ' go on to the screen\'s content.' : ''}`;

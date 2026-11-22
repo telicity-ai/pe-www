@@ -8,7 +8,7 @@ import { parseMarkup } from './preview.js';
 
 /** What has arrived so far. */
 export function newBoard(file) {
-  return { file, plan: [], areas: new Map(), css: '', page: '', pageDone: false, title: '', summary: '', done: false };
+  return { file, plan: [], areas: new Map(), css: '', page: '', pageDone: false, conversation: false, title: '', summary: '', done: false };
 }
 
 function areaOf(board, id) {
@@ -41,6 +41,7 @@ export function take(board, event) {
       board.pageDone = true;
       return true;
     case 'screen':
+      board.conversation = event.conversation === true;
       board.title = event.title || board.title;
       board.summary = event.summary || board.summary;
       return true;
@@ -146,6 +147,7 @@ export function assemble(board, fallbackTitle = '') {
     });
   }
   return {
+    ...(board.conversation ? { conversation: true } : {}),
     screen: { title: board.title || fallbackTitle, summary: board.summary, file: board.file },
     css: board.css,
     page: doc.body.innerHTML,

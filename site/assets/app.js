@@ -41,6 +41,10 @@ const storeKey = (project) => `${STORE}${project.sample ? 'sample' : `${project.
 function saveNow(project) {
   const screens = {};
   for (const screen of project.screens) {
+    if (screen.saved && screen.status !== 'ready') {
+      screens[screen.id] = screen.saved;
+      continue;
+    }
     if (!screen.analysis || screen.status !== 'ready') continue;
     screens[screen.id] = { title: screen.title, choices: screen.choices, ...(project.sample ? {} : { analysis: screen.analysis }) };
   }
@@ -265,7 +269,13 @@ function placePop() {
   const cx = (dot.left + dot.right) / 2;
   const cy = (dot.top + dot.bottom) / 2;
   const distance = (left, top, w, h) => Math.hypot(Math.max(left - cx, 0, cx - left - w), Math.max(top - cy, 0, cy - top - h));
-  const rowLeft = (w) => clamp(dot.right - w + 8, EDGE, Math.max(EDGE, W - w - EDGE));
+  const rowLeft = (w) => {
+    // Keep the row over the preview when it fits there, including for markers
+    // near its left edge. The screen list and prompt stay available on either side.
+    const left = Math.max(EDGE, port.left);
+    const right = Math.min(W - EDGE, port.right);
+    return right - left >= w ? clamp(cx - w / 2, left, right - w) : clamp(cx - w / 2, EDGE, Math.max(EDGE, W - w - EDGE));
+  };
   const colTop = (h) => clamp(dot.top - 10, EDGE, Math.max(EDGE, H - h - EDGE));
 
   let best = null;
@@ -285,7 +295,9 @@ function placePop() {
       if (keep.left - GAP - EDGE >= col.width) found.push({ column: true, size: Math.min(size, 176), w: col.width, h: col.height, left: keep.left - GAP - col.width, top });
     }
     if (found.length) {
-      best = found.reduce((a, b) => (distance(b.left, b.top, b.w, b.h) < distance(a.left, a.top, a.w, a.h) ? b : a));
+      const inside = found.filter((p) => p.left >= port.left && p.left + p.w <= port.right
+        && p.top >= port.top && p.top + p.h <= port.bottom);
+      best = (inside.length ? inside : found).reduce((a, b) => (distance(b.left, b.top, b.w, b.h) < distance(a.left, a.top, a.w, a.h) ? b : a));
       break;
     }
     for (const option of [up, down]) if (!roomiest || option.room > roomiest.room) roomiest = option;
@@ -527,6 +539,7 @@ function boardUrl(project, screen, files) {
   for (const path of files.related) params.append('rel', path);
   for (const path of files.styles) params.append('css', path);
   if (project.stack.length) params.set('stack', project.stack.join(', '));
+  if (files.assets.conversation) params.set('layout', 'conversation-1');
   if (project.scan.treeSha) params.set('v', project.scan.treeSha.slice(0, 12));
   // An answer that failed is kept by the CDN under its address: asking again needs another one.
   params.set('try', String(screen.tries));
@@ -556,6 +569,8 @@ async function analyzeScreen(screen, run = ++state.run) {
   const project = state.project;
   const fallbackTitle = screen.title;
   let board = null;
+  let files;
+  let previousChoices = screen.saved?.choices;
   let showing = false; // the screen has taken the stage at least once
   let timer = null;
   // A run that nobody watches (run 0: a screen read ahead) shows nothing until it is come back to.
@@ -573,17 +588,25 @@ async function analyzeScreen(screen, run = ++state.run) {
     wait();
     renderRail();
     try {
-      const files = await collectFiles(project.scan, screen.path);
+      files = await collectFiles(project.scan, screen.path);
       screen.assets = files.assets;
-      await loadIcons(iconsIn(screen.analysis.page + screen.analysis.areas.map((a) => a.options.map((o) => o.html).join('')).join('')));
-      screen.status = 'ready';
-      screen.resume = null;
-      if (watched()) {
-        hideOverlay();
-        select(screen);
-      } else renderRail();
-      readAhead();
-      return;
+      if (files.assets.conversation && !screen.analysis.conversation) {
+        // Regenerate older thread mockups that were never checked for a timeline
+        // and a composer. Reapply their choices once all new options are known.
+        previousChoices = screen.choices;
+        screen.analysis = null;
+      } else {
+        await loadIcons(iconsIn(screen.analysis.page + screen.analysis.areas.map((a) => a.options.map((o) => o.html).join('')).join('')));
+        screen.status = 'ready';
+        screen.saved = null;
+        screen.resume = null;
+        if (watched()) {
+          hideOverlay();
+          select(screen);
+        } else renderRail();
+        readAhead();
+        return;
+      }
     } catch {
       // The styles did not come: the screen is analyzed anew.
       screen.analysis = null;
@@ -609,7 +632,7 @@ async function analyzeScreen(screen, run = ++state.run) {
   const draw = () => {
     clearTimeout(timer);
     timer = null;
-    if (!watched() || !board) return;
+    if (!watched() || !board || (screen.assets.conversation && !board.conversation) || previousChoices) return;
     const analysis = current();
     if (!/<[a-z]/i.test(analysis.page)) return;
     const asked = iconsIn(markupOf(board));
@@ -632,7 +655,7 @@ async function analyzeScreen(screen, run = ++state.run) {
   const soon = () => { timer ??= setTimeout(draw, DRAW_EVERY_MS); };
 
   try {
-    const files = await collectFiles(project.scan, screen.path);
+    files ??= await collectFiles(project.scan, screen.path);
     screen.assets = files.assets;
     // A failure that comes at once is one the CDN kept: the next address is asked instead.
     for (let attempt = 0; ; attempt += 1) {
@@ -651,7 +674,7 @@ async function analyzeScreen(screen, run = ++state.run) {
       } catch (error) {
         // What arrived before the answer broke off is kept when it is enough to work with.
         board.done = true;
-        if (showing && current().areas.length) break;
+        if (showing && current().areas.length && (!files.assets.conversation || board.conversation)) break;
         if (!(error.fast && attempt < 2 && !showing)) throw error;
         screen.tries += 1;
       }
@@ -659,15 +682,16 @@ async function analyzeScreen(screen, run = ++state.run) {
     clearTimeout(timer);
     timer = null;
     const analysis = current();
-    if (!analysis.areas.length) throw new RepoError('failed');
+    if (!analysis.areas.length || (files.assets.conversation && !analysis.conversation)) throw new RepoError('failed');
     await loadIcons(iconsIn(markupOf(board)));
     screen.status = 'ready';
+    screen.saved = null;
     screen.resume = null;
     if (analysis.screen.title) screen.title = analysis.screen.title;
     if (showing) grow(screen, analysis);
     else {
       screen.analysis = analysis;
-      prepare(screen);
+      prepare(screen, previousChoices);
     }
     if (state.project?.screens.includes(screen)) rewrite();
     readAhead();
@@ -724,6 +748,7 @@ async function analyzeRepo(input) {
     for (const screen of state.project.screens) {
       const was = before?.screens[screen.id];
       if (!was?.analysis?.areas?.length || typeof was.analysis.page !== 'string') continue;
+      screen.saved = was;
       screen.analysis = was.analysis;
       screen.title = was.title || screen.title;
       prepare(screen, was.choices);
