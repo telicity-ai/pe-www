@@ -1,4 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <rect width="64" height="64" rx="14" fill="#db2777"/>
-  <text x="32" y="32" dy="0.35em" text-anchor="middle" font-family="ui-sans-serif, system-ui, -apple-system, sans-serif" font-size="26" font-weight="600" fill="#ffffff">PE</text>
+  <title>picky-eater</title>
+  <!-- The logo with its two-tooth bite drawn as one round bite, which still reads as a bite at 16 and 32 px. -->
+  <path fill="#f0509b" d="M17 6H37.106A19 19 0 0 0 58 26.894V47A11 11 0 0 1 47 58H17A11 11 0 0 1 6 47V17A11 11 0 0 1 17 6Z"/>
 </svg>

@@ -20,7 +20,7 @@ button{font-family:inherit;color:inherit}
 /* nav */
 .nav{position:sticky;top:0;z-index:50;display:flex;align-items:center;gap:22px;height:60px;padding:0 max(24px,calc((100vw - var(--wrap))/2));border-bottom:1px solid var(--line);background:rgba(10,10,10,.78);backdrop-filter:saturate(1.4) blur(12px);font-size:14px;color:var(--mut)}
 .logo{display:flex;align-items:center;gap:10px;color:var(--fg);font-weight:600;font-size:15.5px;letter-spacing:-.01em}
-.logo em{font-style:normal;display:grid;place-items:center;width:26px;height:26px;border-radius:7px;background:var(--pinkd);color:#fff;font-size:11px;font-weight:700}
+.logo img{display:block;width:28px;height:28px;margin:0 -2px 0 -3px}
 .logo small{font:400 11px var(--mono);color:var(--dim);border:1px solid var(--line2);border-radius:999px;padding:1px 7px}
 .nav-links{display:flex;gap:22px}
 .nav-links a:hover,.foot a:hover{color:var(--fg)}
