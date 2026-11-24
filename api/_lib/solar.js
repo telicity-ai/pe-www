@@ -3,6 +3,10 @@
 const UPSTAGE_URL = 'https://api.upstage.ai/v1/chat/completions';
 export const MODEL = process.env.SOLAR_MODEL || 'solar-pro4';
 
+const RATE_LIMIT_HEADERS = ['requests', 'tokens'].flatMap((category) =>
+  ['limit', 'remaining', 'reset', 'interval', 'retry-after'].map((field) =>
+    `x-upstage-ratelimit-${field}-${category}`));
+
 export class SolarError extends Error {
   constructor(status, code, message) {
     super(message);
@@ -29,6 +33,14 @@ export async function ask({ messages, maxTokens, signal, onText, temperature = 0
   } catch (error) {
     throw new SolarError(504, 'model_timeout', error?.name === 'AbortError' ? 'The model took too long' : 'The model could not be reached');
   }
+  const headers = {};
+  for (const name of RATE_LIMIT_HEADERS) {
+    const value = response.headers.get(name);
+    if (value !== null) headers[name] = value;
+  }
+  const log = response.status === 429 ? console.warn : console.log;
+  log('solar_rate_limit', JSON.stringify({ model: MODEL, status: response.status, headers }));
+
   if (response.status === 401 || response.status === 403) throw new SolarError(503, 'not_configured', 'The model key was rejected');
   if (response.status === 429) throw new SolarError(429, 'busy', 'Too many analyses are running. Try again in a minute');
   if (!response.ok || !response.body) {
