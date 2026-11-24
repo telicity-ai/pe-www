@@ -108,7 +108,13 @@ h1 .dimmer{color:#7c7c7c}
 /* dots and options */
 .pop{position:fixed;inset:auto;left:0;top:0;margin:0;z-index:2147483000;display:none;overflow:visible;color:var(--fg);padding:10px;max-width:calc(100vw - 16px);background:#1b1b1d;border:1px solid rgba(255,255,255,.2);border-radius:14px;box-shadow:0 4px 12px rgba(0,0,0,.28)}
 .pop.show{display:block}
-.pop-h{margin:0 2px 8px;font-size:12.5px;font-weight:500;color:var(--fg)}
+.pop{cursor:grab;touch-action:none;-webkit-user-select:none;user-select:none}
+.pop.dragging,.pop.dragging *{cursor:grabbing}
+.pop-press iframe{pointer-events:none!important}
+.pop-h{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:0 2px 8px;font-size:12.5px;font-weight:500;color:var(--fg)}
+.pop-h span{min-width:0}
+.grip{flex:none;width:8px;height:13px;fill:currentColor;opacity:.4}
+.pop:hover .grip,.pop.dragging .grip{opacity:.75}
 .pop--col{max-width:none}
 .pop--col .pop-o{flex-direction:column;flex-wrap:nowrap}
 .pop--col .pop-h{max-width:172px}

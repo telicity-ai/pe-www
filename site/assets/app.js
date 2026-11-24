@@ -186,7 +186,7 @@ function renderPop() {
   // Only pictures: what an option is called and why one is suggested are read by pointing at it
   // (and by a screen reader), so that the options take as little of the page as possible.
   pop.setAttribute('aria-label', area.label);
-  pop.innerHTML = `<div class="pop-h">${esc(area.label)}</div><div class="pop-o">${area.options.map((option) => {
+  pop.innerHTML = `<div class="pop-h" title="${esc(t('pop.move'))}"><span>${esc(area.label)}</span><svg class="grip" viewBox="0 0 10 16" aria-hidden="true"><circle cx="2" cy="2" r="1.5"/><circle cx="8" cy="2" r="1.5"/><circle cx="2" cy="8" r="1.5"/><circle cx="8" cy="8" r="1.5"/><circle cx="2" cy="14" r="1.5"/><circle cx="8" cy="14" r="1.5"/></svg></div><div class="pop-o">${area.options.map((option) => {
     const selected = screen.choices[area.id] === option.id;
     const label = option.label || t('pop.keep');
     const reason = option.suggested ? `${t('pop.suggested')}${option.because ? `: ${option.because}` : ''}` : '';
@@ -238,6 +238,22 @@ let placing = false;
  * its tallest option makes it: the options stay where they are while one of them is tried.
  */
 let settling = null; // while the page scrolls to an area that was asked for from the toolbar
+// Where the visitor has dragged the options to: { left, top, column }. Nothing moves them from
+// there, whatever they cover, until they are closed or another area is opened.
+let moved = null;
+let drag = null; // { id, x, y, left, top, on } from the press on; `on` once the pointer has moved far enough
+let dragEnded = false; // the click that ends a drag chooses nothing and closes nothing
+
+/** Keeps the options where they were dragged to, as far as the window has room for that. */
+function holdPop() {
+  const EDGE = 8;
+  pop.classList.toggle('pop--col', moved.column);
+  for (const thumb of thumbs) thumb.refit?.();
+  const fit = (value, room) => Math.max(EDGE, Math.min(value, Math.max(EDGE, room - EDGE)));
+  pop.style.left = `${Math.round(fit(moved.left, document.documentElement.clientWidth - pop.offsetWidth))}px`;
+  pop.style.top = `${Math.round(fit(moved.top, document.documentElement.clientHeight - pop.offsetHeight))}px`;
+  pop.style.visibility = '';
+}
 
 function placePop() {
   if (!state.open || placing) return;
@@ -245,6 +261,7 @@ function placePop() {
     pop.style.visibility = 'hidden';
     return;
   }
+  if (moved) return holdPop();
   // While an option is being tried the options stay where they are, whatever the page does:
   // moved from under the pointer, the option would be let go of, and the page would change back.
   if (state.preview && pop.style.visibility !== 'hidden') return;
@@ -331,6 +348,8 @@ function openArea(id, fromKeyboard = false, fromToolbar = false) {
   state.open = id;
   state.fromToolbar = Boolean(id && fromToolbar);
   state.preview = null;
+  moved = null;
+  dragEnd();
   syncStage();
   renderToolbar();
   renderRail();
@@ -885,7 +904,7 @@ $('screens').addEventListener('click', (event) => {
 });
 
 function pointAt(option) {
-  if (!option || !state.open) return;
+  if (!option || !state.open || drag?.on) return;
   if (state.preview?.option === option.dataset.option) return;
   state.preview = { area: state.open, option: option.dataset.option };
   syncStage();
@@ -901,13 +920,56 @@ function pointAway() {
   renderRail();
   renderDiff();
 }
+// The options can be dragged anywhere, by any part of them: where they open they may cover just
+// what an option changes, and where they should go instead is the visitor's to say.
+pop.addEventListener('pointerdown', (event) => {
+  if (event.button !== 0 || !state.open || drag || pop.style.visibility === 'hidden') return;
+  const box = pop.getBoundingClientRect();
+  drag = { id: event.pointerId, x: event.clientX, y: event.clientY, left: box.left, top: box.top, on: false };
+  // The pointer is followed from the whole page, and the preview lets it through meanwhile:
+  // a quick pull leaves the options before they have moved at all.
+  document.documentElement.classList.add('pop-press');
+  window.addEventListener('pointermove', dragMove, true);
+  window.addEventListener('pointerup', dragEnd, true);
+  window.addEventListener('pointercancel', dragEnd, true);
+});
+function dragMove(event) {
+  if (!drag || event.pointerId !== drag.id) return;
+  if (event.pointerType === 'mouse' && !(event.buttons & 1)) return dragEnd(event); // let go of outside the window
+  const dx = event.clientX - drag.x;
+  const dy = event.clientY - drag.y;
+  if (!drag.on) {
+    if (Math.hypot(dx, dy) < 5) return;
+    drag.on = true;
+    // From here on the pointer is followed past the edge of the window as well.
+    try { pop.setPointerCapture(drag.id); } catch { /* the pointer is gone */ }
+    pop.classList.add('dragging');
+  }
+  event.preventDefault();
+  moved = { left: drag.left + dx, top: drag.top + dy, column: pop.classList.contains('pop--col') };
+  holdPop();
+}
+function dragEnd(event) {
+  if (!drag || (event && event.pointerId !== drag.id)) return;
+  if (drag.on) {
+    pop.classList.remove('dragging');
+    dragEnded = true;
+    setTimeout(() => { dragEnded = false; }, 0);
+  }
+  drag = null;
+  document.documentElement.classList.remove('pop-press');
+  window.removeEventListener('pointermove', dragMove, true);
+  window.removeEventListener('pointerup', dragEnd, true);
+  window.removeEventListener('pointercancel', dragEnd, true);
+}
+
 pop.addEventListener('mouseover', (event) => pointAt(event.target.closest('.opt')));
 pop.addEventListener('focusin', (event) => pointAt(event.target.closest('.opt')));
 pop.addEventListener('mouseleave', pointAway);
 pop.addEventListener('focusout', (event) => { if (!pop.contains(event.relatedTarget)) pointAway(); });
 pop.addEventListener('click', (event) => {
   const option = event.target.closest('.opt');
-  if (!option || !state.open) return;
+  if (!option || !state.open || dragEnded) return;
   event.stopPropagation();
   choose(state.open, option.dataset.option);
   state.preview = null;
@@ -925,7 +987,7 @@ $('pips').addEventListener('click', (event) => {
 });
 
 document.addEventListener('click', (event) => {
-  if (state.open && !event.target.closest('.pop')) closePop();
+  if (state.open && !dragEnded && !event.target.closest('.pop')) closePop();
 });
 document.addEventListener('keydown', (event) => {
   if (event.key === 'Escape') dismissPop();
