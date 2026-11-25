@@ -59,7 +59,7 @@ export function planOf(list, picked, lang, kind = 'site') {
   if (!areas.length) {
     const opening = list.find((c) => c.kind === 'block' && c.opens);
     const groups = list.filter((c) => c.kind === 'group');
-    // A screen without a group (a sign-in panel, an empty state) still has its blocks.
+    // A screen without a group (an empty state, a notice) still has its blocks.
     const blocks = groups.length ? [] : list.filter((c) => c.kind === 'block' && c !== opening);
     for (const candidate of [opening, ...groups, ...blocks].filter(Boolean).slice(0, AREAS)) add(candidate);
   } else {

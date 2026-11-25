@@ -55,9 +55,9 @@ test('source code is told from HTML', () => {
 test('the instructions describe the form that is read, and name arrangements the catalog knows', () => {
   const task = screenTask();
   const example = task.slice(task.indexOf('EXAMPLE'));
-  // The example is an answer in the form the task asks for: a page, then its name.
-  const seen = read(example.slice(example.indexOf('@@CSS'), example.indexOf('@@END') + 5), 9).filter(([kind]) => kind === 'marker').map(([, name]) => name);
-  assert.deepEqual(seen, ['CSS', 'PAGE', 'TITLE', 'SUMMARY', 'END']);
+  // The example is an answer in the form the task asks for: the screen's name, then its page.
+  const seen = read(example.slice(example.indexOf('@@TITLE'), example.indexOf('@@END') + 5), 9).filter(([kind]) => kind === 'marker').map(([, name]) => name);
+  assert.deepEqual(seen, ['TITLE', 'SUMMARY', 'CSS', 'PAGE', 'END']);
   assert.doesNotMatch(systemPrompt('en') + task, /<path\s+d=/, 'no drawing of an icon in the instructions');
   assert.doesNotMatch(systemPrompt('en') + task, /@@AREA|@@WHERE|catalog/i, 'the screen is written without a plan of areas');
   assert.match(screenTask('short'), /stopped in the middle/);

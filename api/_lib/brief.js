@@ -50,7 +50,9 @@ const CHECK = `BEFORE YOU ANSWER, CHECK
   HTML:   <button data-slot="button" class="inline-flex h-8 items-center justify-center gap-2 rounded-md border bg-background px-3 text-sm font-medium"><svg data-icon="lucide:plus" class="size-4"></svg>Add</button>
 - Every <svg> is empty and has data-icon, also when the code draws it itself: no <path>.`;
 
-const SCREEN_EXAMPLE = `@@CSS
+const SCREEN_EXAMPLE = `@@TITLE Notifications
+@@SUMMARY A settings panel with one switch per notification and a Save button at the end.
+@@CSS
 @@PAGE
 <div class="min-h-screen bg-background text-foreground" style="min-height:100vh">
 <main class="mx-auto flex max-w-2xl flex-col gap-6 p-6">
@@ -63,8 +65,6 @@ const SCREEN_EXAMPLE = `@@CSS
 <div class="flex justify-end"><button class="inline-flex h-9 items-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground">Save</button></div>
 </main>
 </div>
-@@TITLE Notifications
-@@SUMMARY A settings panel with one switch per notification and a Save button at the end.
 @@END`;
 
 /** The call that writes the screen. `again` says why it is asked for again: 'source', 'short', 'loop' or 'conversation'. */
@@ -73,12 +73,12 @@ export function screenTask(again = null, repeated = null, conversation = []) {
 
 Answer in exactly this form. ${FORM}
 
+@@TITLE the screen's name as a person would say it ("Settings", "Pricing"), at most 4 words
+@@SUMMARY one sentence on what the screen is today
 @@CSS
 extra CSS, usually nothing
 @@PAGE
 the HTML of the screen
-@@TITLE the screen's name as a person would say it ("Settings", "Pricing"), at most 4 words
-@@SUMMARY one sentence on what the screen is today
 @@END
 
 THE PAGE
@@ -104,7 +104,7 @@ The source renders ${conversation.join(', ')}. Render a normal populated thread.
 ${again === 'conversation' ? 'The previous answer lost or misplaced part of the conversation. Copy the three sibling tags and their identifying attributes exactly. Finish each before starting the next.' : ''}
 Replace the descriptions with finished HTML. Keep the title, both messages and the input visible in the first viewport. Omit collapsed, empty or conditional handoff, queue, search and history-loading controls. Skip unrelated panels. Keep the HTML short enough to finish the composer.` : ''}
 
-${CHECK}${again === 'short' ? '\n\nYour last answer stopped in the middle of the page. Write the page to its end, then @@TITLE, @@SUMMARY and @@END.' : again === 'source' ? '\n\nYour last answer had the project\'s source code in the page (className, component tags such as <Button>, expressions in braces). Write HTML.' : ''}${again === 'loop' ? '\n\nYour last answer wrote the same line over and over' + (repeated ? `, this one:\n${repeated.slice(0, 300)}\nWrite it once at most, and` : '. Write each element of the page once, and') + ' go on to the screen\'s content.' : ''}`;
+${CHECK}${again === 'short' ? '\n\nYour last answer stopped in the middle of the page. Write the page to its end, then @@END.' : again === 'source' ? '\n\nYour last answer had the project\'s source code in the page (className, component tags such as <Button>, expressions in braces). Write HTML.' : ''}${again === 'loop' ? '\n\nYour last answer wrote the same line over and over' + (repeated ? `, this one:\n${repeated.slice(0, 300)}\nWrite it once at most, and` : '. Write each element of the page once, and') + ' go on to the screen\'s content.' : ''}`;
 }
 
 // ---------- the areas of a page ----------

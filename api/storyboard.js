@@ -236,16 +236,13 @@ async function draw({ query, files, styles, send: pass, signal: outer, again = f
 
   const reader = new Reader(
     (name, rest) => {
+      // The name of the screen comes first: a page that is cut off at its end still has one.
+      if (name === 'TITLE') title ??= rest;
+      else if (name === 'SUMMARY') summary ??= rest;
       if (phase === 'head' || phase === 'css') {
         if (name === 'CSS') phase = 'css';
         else if (name === 'PAGE') beginPage();
-      } else if (name === 'TITLE') {
-        endPage();
-        title = rest;
-      } else if (name === 'SUMMARY') {
-        endPage();
-        summary = rest;
-      } else if (name === 'END') endPage();
+      } else if (name === 'TITLE' || name === 'SUMMARY' || name === 'END') endPage();
     },
     (text) => {
       if (phase === 'css') css += css.length < LIMITS.css ? text : '';

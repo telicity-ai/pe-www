@@ -375,6 +375,9 @@ export function candidates(page, { groups = 10, blocks = 6, app = false } = {}) 
     const facts = factsOf(top);
     const own = factsOf(heading).words;
     if (facts.words < own + 3 && !facts.actions && !facts.pictures) continue;
+    // A panel of fields under its title (signing in, a short form) is no block to align: text
+    // centered above the fields it names reads worse than what is there.
+    if (app && facts.controls) continue;
     if (found.some((c) => c.from < top.sourceCodeLocation.endOffset && top.sourceCodeLocation.startOffset < c.to)) continue;
     found.push({
       kind: 'block', node: top, from: top.sourceCodeLocation.startOffset, to: top.sourceCodeLocation.endOffset,
