@@ -163,11 +163,16 @@ function settle(screen, full) {
 function tried({ results }) {
   const screen = state.screen;
   if (!screen?.full?.site) return;
+  const first = !screen.checks;
   screen.checks = results;
   const before = JSON.stringify(screen.analysis?.areas.map((area) => [area.id, area.options.map((option) => option.id)]));
   const analysis = offered(screen.full, results, screen.choices);
   preview.offer(analysis.areas.map((area) => area.id));
-  if (before === JSON.stringify(analysis.areas.map((area) => [area.id, area.options.map((option) => option.id)]))) return;
+  if (before === JSON.stringify(analysis.areas.map((area) => [area.id, area.options.map((option) => option.id)]))) {
+    // Nothing is offered, and now it is known that nothing will be: the toolbar says so.
+    if (first) renderToolbar();
+    return;
+  }
   grow(screen, analysis);
   if (state.open && !analysis.areas.some((area) => area.id === state.open)) closePop();
   else if (state.open && !state.preview) {

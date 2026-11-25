@@ -94,7 +94,7 @@ test('the answer about a live page is read into areas, and without one the page 
   assert.equal(events[4].because, undefined);
   // No answer: the groups of the page are offered, nothing suggested, named in the page's language.
   const bare = planOf(list, readAreas('I cannot help with that.', list).areas, 'ko');
-  assert.equal(bare[0].label, '항목 배치 방식');
+  assert.equal(bare[0].label, '“Plans for every team” 배치 방식');
   assert.ok(bare[0].options.every((o) => !o.because));
 });
 

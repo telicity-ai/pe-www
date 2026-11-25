@@ -240,7 +240,7 @@ The parts of the page, in the order of the page. A group is a set of like items 
 
 ${outline}
 
-Choose up to 5 parts, the one that matters most to a visitor first: what the page opens with, how it presents what it offers, what its customers say, its plans. Leave out a part that is the inside of a product screenshot or a demo (rows of a mock inbox, messages of a mock chat, a code sample) and a part that says little.
+Choose 5 parts (fewer only when the page has fewer that are worth it), the one that matters most to a visitor first: what the page opens with, how it presents what it offers, what its customers say, its plans. Not every arrangement will hold when it is tried on the page, so a part more is better than a part less. Leave out a part that is the inside of a product screenshot or a demo (rows of a mock inbox, messages of a mock chat, a code sample) and a part that says little.
 
 For each part, name up to 3 of ITS arrangements, the one you would suggest first, each with the reason it would suit this part. You cannot see how the part is arranged today: the reason speaks of what the part holds (how many items, how much text, whether there are pictures, what a visitor wants to do there), never of what the page does now or should stop doing.
 
@@ -251,7 +251,7 @@ Answer in exactly this form. ${FORM}
 @@SUMMARY one sentence on what the page is
 @@END
 
-- @@AREA: the number of the part, and a label of at most 7 plain words that says what is being decided ("How the plans are compared", "How the page opens").
+- @@AREA: the number of the part, and a label of at most 7 plain words that says what is being decided about THAT part, named by what it holds ("How the plans are compared", "How the customer quotes are shown"). Only the block that opens the page is "How the page opens".
 - @@PICK: one of the arrangements named at the end of that part's line, and one sentence of at most 20 plain words. One @@PICK line per arrangement, right after its @@AREA.
 
 EXAMPLE

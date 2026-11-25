@@ -29,13 +29,14 @@ const DEFAULT_ORIGINS = ['https://telicity-ai.github.io'];
 const LOCAL_ORIGIN = /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
 
 const PAGE_BYTES = 2_500_000; // the page as it is served
-const PAGE_CHARS = 1_000_000; // what is left of it without scripts
+const PAGE_CHARS = 1_500_000; // what is left of it without scripts
 // A site built from parts has a stylesheet for each (some fifty of a few kilobytes); one built
 // as a whole has one of a megabyte. Both are taken.
 const SHEETS = 80;
 const SHEET_BYTES = 2_000_000;
 const SHEETS_CHARS = 4_000_000;
 const AREAS = 5; // more than are shown: an area whose arrangements do not hold on the page is left out there
+const SPARE = 3; // parts the model did not name, offered when those it named do not hold
 const DEADLINE_MS = 60_000;
 
 const PER_MINUTE = 6;
@@ -72,8 +73,8 @@ const one = (value) => (Array.isArray(value) ? value[0] : value);
 
 /** What an area is called when the model does not say. */
 const LABELS = {
-  en: { opens: 'How the page opens', block: 'How this part is laid out', group: 'How these items are laid out' },
-  ko: { opens: '첫 화면 구성', block: '이 부분의 배치', group: '항목 배치 방식' },
+  en: { opens: 'How the page opens', block: 'How this part is laid out', group: 'How these items are laid out', under: (title) => `How “${title}” is laid out` },
+  ko: { opens: '첫 화면 구성', block: '이 부분의 배치', group: '항목 배치 방식', under: (title) => `“${title}” 배치 방식` },
 };
 
 /**
@@ -113,15 +114,23 @@ export function readAreas(text, list) {
  * part can take: those that were given a reason first, in their order.
  */
 export function planOf(list, picked, lang) {
-  let areas = picked;
+  const areas = [...picked];
+  const free = (candidate) => !areas.some((a) => a.candidate.from < candidate.to && candidate.from < a.candidate.to);
+  const add = (candidate) => areas.push({ candidate, label: null, picks: [] });
   if (!areas.length) {
     const opening = list.find((c) => c.kind === 'block' && c.opens);
-    areas = [opening, ...list.filter((c) => c.kind === 'group')].filter(Boolean).slice(0, AREAS).map((candidate) => ({ candidate, label: null, picks: [] }));
+    for (const candidate of [opening, ...list.filter((c) => c.kind === 'group')].filter(Boolean).slice(0, AREAS)) add(candidate);
+  } else {
+    // What the model named may not hold when it is tried on the page: some groups that it did
+    // not name stand by. Those under a heading of their own, or of items with headings, are
+    // parts of the page itself rather than the inside of a picture of a product.
+    const spare = list.filter((c) => c.kind === 'group' && c.items >= 3 && (c.title || c.each.includes('a heading')) && free(c));
+    for (const candidate of spare.slice(0, SPARE)) add(candidate);
   }
   const names = LABELS[lang] ?? LABELS.en;
   return areas.map(({ candidate, label, picks }) => ({
     id: `area-${candidate.n}`,
-    label: label ?? (candidate.kind === 'group' ? names.group : candidate.opens ? names.opens : names.block),
+    label: label ?? (candidate.kind === 'group' ? (candidate.title ? names.under(clean(candidate.title, 40)) : names.group) : candidate.opens ? names.opens : names.block),
     place: { from: candidate.from, to: candidate.to },
     options: [...picks, ...candidate.fits.filter((id) => !picks.some((pick) => pick.id === id)).map((id) => ({ id }))],
   }));
