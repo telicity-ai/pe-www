@@ -201,7 +201,7 @@ async function draw({ address, lang, send, signal }) {
 
   // The model is asked while the stylesheets are fetched: it needs the outline alone.
   let text = '';
-  const asking = ask({ messages: [{ role: 'system', content: siteSystem(lang) }, { role: 'user', content: siteAreasTask({ url: got.url.href, title: page.title, outline: outline(list) }) }], maxTokens: 700, signal, onText: (piece) => { text += piece; } })
+  const asking = ask({ messages: [{ role: 'system', content: siteSystem(lang) }, { role: 'user', content: siteAreasTask({ url: got.url.href, title: page.title, outline: outline(list), lang }) }], maxTokens: 700, signal, onText: (piece) => { text += piece; } })
     .then((answer) => ({ answer }), (error) => ({ error }));
 
   const sheets = await readSheets(page.sheets);

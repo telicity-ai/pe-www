@@ -231,7 +231,24 @@ ${Object.entries(ARRANGEMENTS).map(([id, a]) => `${id} (of a ${a.of}): ${a.what}
 }
 
 /** Which parts of a live page are its areas, and how each would be arranged. `outline` lists the parts. */
-export function siteAreasTask({ url, title, outline }) {
+const SITE_EXAMPLE = {
+  en: `@@AREA 4 | How the three plans are compared
+@@PICK grid | Three plans with the same rows of features are compared fastest side by side.
+@@PICK featured | The team plan is the one most visitors want, so it can lead.
+@@AREA 1 | How the page opens
+@@PICK split | The product picture explains the headline, so it belongs beside it.
+@@SUMMARY The home page of a scheduling product, with a hero, three feature rows, plans and a footer.
+@@END`,
+  ko: `@@AREA 4 | 요금제 세 가지 비교 방식
+@@PICK grid | 기능 항목이 같은 요금제 세 개는 나란히 놓아야 가장 빨리 비교됩니다.
+@@PICK featured | 방문자 대부분이 팀 요금제를 찾으니 그것을 먼저 크게 보여 줄 만합니다.
+@@AREA 1 | 첫 화면 구성
+@@PICK split | 제품 화면이 제목을 설명해 주니 제목 옆에 두는 편이 낫습니다.
+@@SUMMARY 일정 관리 제품의 홈페이지로, 첫 화면과 기능 소개 세 줄, 요금제, 바닥글이 있습니다.
+@@END`,
+};
+
+export function siteAreasTask({ url, title, outline, lang = 'en' }) {
   return `TASK: THE AREAS OF A LIVE PAGE
 
 Page: ${title || url} (${url})
@@ -255,11 +272,7 @@ Answer in exactly this form. ${FORM}
 - @@PICK: one of the arrangements named at the end of that part's line, and one sentence of at most 20 plain words. One @@PICK line per arrangement, right after its @@AREA.
 
 EXAMPLE
-@@AREA 4 | How the three plans are compared
-@@PICK grid | Three plans with the same rows of features are compared fastest side by side.
-@@PICK featured | The team plan is the one most visitors want, so it can lead.
-@@AREA 1 | How the page opens
-@@PICK split | The product picture explains the headline, so it belongs beside it.
-@@SUMMARY The home page of a scheduling product, with a hero, three feature rows, plans and a footer.
-@@END`;
+${SITE_EXAMPLE[lang] ?? SITE_EXAMPLE.en}
+
+${lang === 'ko' ? 'Write every label, every reason and the summary in Korean (한국어), as in the example, whatever language the page and this task are in. The arrangement after @@PICK stays as it is named above (grid, rows, zigzag, scroller, featured, centered, left, split).' : 'Write every label, every reason and the summary in English, whatever language the page is in.'}`;
 }
