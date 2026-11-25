@@ -163,14 +163,13 @@ function settle(screen, full) {
 function tried({ results }) {
   const screen = state.screen;
   if (!screen?.full?.site) return;
-  const first = !screen.checks;
   screen.checks = results;
   const before = JSON.stringify(screen.analysis?.areas.map((area) => [area.id, area.options.map((option) => option.id)]));
   const analysis = offered(screen.full, results, screen.choices);
   preview.offer(analysis.areas.map((area) => area.id));
   if (before === JSON.stringify(analysis.areas.map((area) => [area.id, area.options.map((option) => option.id)]))) {
-    // Nothing is offered, and now it is known that nothing will be: the toolbar says so.
-    if (first) renderToolbar();
+    // When nothing is offered and it is now known that nothing will be, the toolbar says so.
+    renderToolbar();
     return;
   }
   grow(screen, analysis);
@@ -475,7 +474,7 @@ function renderToolbar() {
   $('pcount').classList.toggle('busy', writing);
   const count = areas.length ? t(previewing ? 'pg.previewChosen' : 'pg.chosen', { n: chosen, m: areas.length })
     : writing ? t(state.screen.analysis?.pageDone ? 'pg.options' : 'pg.drawing')
-      : state.screen?.full && state.screen.checks ? t('pg.noAreas') : '';
+      : state.screen?.full?.areas.every((area) => state.screen.checks?.[area.id]) ? t('pg.noAreas') : '';
   if ($('pcount').textContent !== count) $('pcount').textContent = count;
 }
 

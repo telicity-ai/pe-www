@@ -415,6 +415,48 @@ function bridge(placeDot, resolveOptions) {
     const items = [...container.children].filter((el) => el.hasAttribute('data-pe-item') && seen(el));
     return items.length >= 2 ? { root, container, items } : null;
   }
+  /** What is seen of an element: its box, cut by everything around it that cuts off what reaches past it. */
+  function shownBox(el) {
+    const r = box(el);
+    const out = { left: r.left, top: r.top, right: r.right, bottom: r.bottom };
+    for (let up = el.parentElement; up && up !== document.documentElement; up = up.parentElement) {
+      const cs = getComputedStyle(up);
+      if (cs.overflowX === 'visible' && cs.overflowY === 'visible') continue;
+      const u = box(up);
+      if (cs.overflowX !== 'visible') {
+        out.left = Math.max(out.left, u.left);
+        out.right = Math.min(out.right, u.right);
+      }
+      if (cs.overflowY !== 'visible') {
+        out.top = Math.max(out.top, u.top);
+        out.bottom = Math.min(out.bottom, u.bottom);
+      }
+    }
+    return { ...out, width: Math.max(0, out.right - out.left), height: Math.max(0, out.bottom - out.top) };
+  }
+  /**
+   * True for a group that is the inside of a picture of a product (the rows of a mock inbox, the
+   * columns of a mock board) rather than a part of the page: its words are small print, and
+   * nothing in it or above it is a heading; or most of it is cut off by a frame around it.
+   */
+  function staged(root, items) {
+    const cut = items.filter((item) => {
+      const whole = box(item);
+      const part = shownBox(item);
+      return part.width * part.height < whole.width * whole.height * 0.6;
+    }).length;
+    if (cut > items.length / 2) return true;
+    if (root.querySelector('h1, h2, h3, h4, h5, h6')) return false;
+    const sizes = items.map((item) => {
+      const walker = document.createTreeWalker(item, NodeFilter.SHOW_TEXT);
+      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        if (node.data.trim().length > 3 && node.parentElement) return pixels(getComputedStyle(node.parentElement).fontSize);
+      }
+      return 16;
+    }).sort((a, b) => a - b);
+    return sizes[Math.floor(sizes.length / 2)] < 14;
+  }
+
   /** How items lie today: `{ rects, columns, gap, wide }`; `wide` when they reach past the area (a row that is scrolled). */
   function laid(root, items) {
     const rects = items.map(box);
@@ -433,6 +475,7 @@ function bridge(placeDot, resolveOptions) {
     const group = groupOf(id);
     if (!group) return 'unfit';
     const { root, container, items } = group;
+    if (staged(root, items)) return 'unfit';
     const today = laid(root, items);
     const width = box(root).width;
     const others = flow(container).filter((el) => !items.includes(el));
@@ -479,6 +522,11 @@ function bridge(placeDot, resolveOptions) {
     });
     notes.splits = splits.filter(Boolean);
     notes.wanted = recipe === 'zigzag' ? Math.ceil(items.length * 0.6) : 0;
+    // How wide an item is meant to be now: a card that keeps a width of its own does not take the arrangement.
+    notes.container = container;
+    notes.columns = row ? 0 : columns;
+    notes.gap = today.gap;
+    notes.lead = recipe === 'featured';
     return null;
   }
 
@@ -580,6 +628,7 @@ function bridge(placeDot, resolveOptions) {
     const items = group ? groupOf(id)?.items ?? [] : [];
     const heading = group ? null : root.querySelector('h1, h2, h3') ?? root;
     const before = group ? items.map(box) : wordsBox(heading);
+    const seenBefore = items.map(shownBox);
     // What each item is headed by: a heading broken into a narrow column says the item was squeezed.
     const heads = items.map((item) => item.querySelector('h1, h2, h3, h4, h5, strong, b') ?? item);
     const headsWere = heads.map(wordsBox);
@@ -593,7 +642,16 @@ function bridge(placeDot, resolveOptions) {
       const after = items.map(box);
       const moved = after.some((r, i) => Math.abs((r.left - now.left) - (before[i].left - was.left)) > 3 || Math.abs((r.top - now.top) - (before[i].top - was.top)) > 3 || Math.abs(r.width - before[i].width) > 3 || Math.abs(r.height - before[i].height) > 3);
       if (!moved) return 'same';
+      // What moved where nobody sees it has changed nothing.
+      const seenAfter = items.map(shownBox);
+      if (!seenAfter.some((r, i) => Math.abs(r.left - seenBefore[i].left) > 3 || Math.abs(r.top - seenBefore[i].top - (now.top - was.top)) > 3 || Math.abs(r.width - seenBefore[i].width) > 3 || Math.abs(r.height - seenBefore[i].height) > 3)) return 'same';
       if (after.some((r) => r.width < 150 || r.height < 20)) return 'cramped';
+      if (notes.columns) {
+        const cs = getComputedStyle(notes.container);
+        const inner = notes.container.clientWidth - pixels(cs.paddingLeft) - pixels(cs.paddingRight);
+        const cell = (inner - notes.gap * (notes.columns - 1)) / notes.columns;
+        if (after.some((r, i) => r.width < (notes.lead && i === 0 ? inner : cell) * 0.8)) return 'unfit';
+      }
       if (heads.some((el, i) => {
         const r = wordsBox(el);
         return r.width < 170 && r.height > headsWere[i].height * 2.4 && r.height > 60;
