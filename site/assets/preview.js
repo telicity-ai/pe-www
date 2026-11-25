@@ -20,6 +20,8 @@ const ATTRIBUTES = new Set(('class id style title role tabindex lang dir hidden 
 
 // A live page's pictures are its own and are shown; a repository's cannot be loaded.
 let pictures = false;
+// The marks that the server puts on the groups of a page whose options are arrangements.
+let marks = false;
 
 function cleanElement(el) {
   for (const child of [...el.children]) {
@@ -38,8 +40,8 @@ function cleanElement(el) {
     if (child.hasAttribute('classname') && !child.hasAttribute('class')) child.setAttribute('class', child.getAttribute('classname'));
     for (const attribute of [...child.attributes]) {
       const name = attribute.name.toLowerCase();
-      // Of the marks this page uses itself, only those that the server puts on a live page's groups come from outside.
-      const known = ATTRIBUTES.has(name) || name.startsWith('aria-') || (name.startsWith('data-') && !name.startsWith('data-pe')) || (pictures && (name === 'data-pe-group' || name === 'data-pe-item'));
+      // Of the marks this page uses itself, only those that the server puts on a page's groups come from outside.
+      const known = ATTRIBUTES.has(name) || name.startsWith('aria-') || (name.startsWith('data-') && !name.startsWith('data-pe')) || (marks && (name === 'data-pe-group' || name === 'data-pe-item'));
       if (!known || name.startsWith('on')) {
         child.removeAttribute(attribute.name);
         continue;
@@ -196,14 +198,16 @@ function repair(root, decision) {
  * Markup from an analysis, reduced to what is safe to draw. A <pe-area id> becomes the comment
  * <!--pe-area:id-->, which marks a place without being an element that styles could count.
  */
-export function sanitize(html, decision, slots, sectionGrids, site = false) {
+export function sanitize(html, decision, slots, sectionGrids, site = false, arranged = site) {
   // The address of a picture is not among the attributes that stay: it is set aside until the element is known to be kept.
   const doc = parseMarkup(site ? html.replace(/<img\b([^>]*?)\ssrc\s*=\s*(["'])(https:\/\/[^"']*)\2/gi, '<img$1 data-src=$2$3$2') : html);
   pictures = site;
+  marks = arranged;
   try {
     cleanElement(doc.body);
   } finally {
     pictures = false;
+    marks = false;
   }
   for (const svg of doc.body.querySelectorAll('svg[data-icon]')) drawIcon(svg);
   // What follows mends markup that a model wrote from source code; a live page is as its site made it.
@@ -334,12 +338,13 @@ function bridge(placeDot, resolveOptions) {
     }
   }
 
-  // ----- a live page's own elements, arranged another way -----
+  // ----- a page's own elements, arranged another way -----
   //
-  // An option of a live page is not other markup: it is a copy of the area as it is today, whose
-  // elements are laid out anew here, where their styles and their sizes are known. Whether that
-  // gave what was meant (something else than today, nothing cut off, nothing squeezed) is measured
-  // right after; an arrangement that did not hold is not offered.
+  // An arrangement is not other markup: it is a copy of the area as it is today, whose elements
+  // are laid out anew here, where their styles and their sizes are known. Whether that gave what
+  // was meant (something else than today, nothing cut off, nothing squeezed) is measured right
+  // after; an arrangement that did not hold is not offered. A live page's options are of this
+  // kind, and so are those of a screen written from a repository's source.
   const recipeOf = (id, option) => layout.areas.find((area) => area.id === id)?.options.find((entry) => entry.id === option)?.recipe ?? null;
   const sizeNow = () => `${document.documentElement.clientWidth}`;
   const arrangedAt = new Map(); // "area option" → the width of the page it was arranged at
@@ -372,7 +377,8 @@ function bridge(placeDot, resolveOptions) {
   const isMedia = (el) => {
     const r = box(el);
     if (r.width < 120 || r.height < 80 || wordsIn(el) > 8) return false;
-    const pictures = el.matches('img, picture, svg') ? [el] : [...el.querySelectorAll('img, picture, svg')];
+    // In a screen written from source, a box stands in for a picture that cannot be loaded.
+    const pictures = el.matches('img, picture, svg, [data-picture]') ? [el] : [...el.querySelectorAll('img, picture, svg, [data-picture]')];
     return pictures.some((picture) => {
       const p = box(picture.localName === 'picture' ? picture.querySelector('img') ?? picture : picture);
       return p.width >= 100 && p.height >= 60;
@@ -386,7 +392,7 @@ function bridge(placeDot, resolveOptions) {
     const text = kids.filter((kid) => !media.includes(kid) && wordsIn(kid) > 0);
     if (media.length === 1 && text.length) return { at: el, media: media[0], text, others: kids.filter((kid) => kid !== media[0] && !text.includes(kid)) };
     // Text and picture may lie one level further in, beside something that says nothing.
-    const full = kids.filter((kid) => wordsIn(kid) > 0 || kid.querySelector('img, picture, svg'));
+    const full = kids.filter((kid) => wordsIn(kid) > 0 || kid.querySelector('img, picture, svg, [data-picture]'));
     if (!media.length && full.length === 1 && depth < 5) return splitOf(full[0], depth + 1);
     return null;
   }
@@ -475,7 +481,8 @@ function bridge(placeDot, resolveOptions) {
     const group = groupOf(id);
     if (!group) return 'unfit';
     const { root, container, items } = group;
-    if (staged(root, items)) return 'unfit';
+    // Only a live page shows pictures of a product; the small print of an application is its own.
+    if (config.site && staged(root, items)) return 'unfit';
     const today = laid(root, items);
     const width = box(root).width;
     const others = flow(container).filter((el) => !items.includes(el));
@@ -577,6 +584,12 @@ function bridge(placeDot, resolveOptions) {
     const stack = recipe === 'centered' && split && side;
     if (!ops.length && recipe !== 'split' && !stack) return 'same';
     for (const [el, add] of ops) style(k, el, add);
+    if (to === 'left') {
+      // A column that stood in the middle of the page needed no room at its sides; words that
+      // now touch the edge of the page are given some.
+      const edge = wordsBox(root).left;
+      if (edge < 12) style(k, root, { 'padding-left': `${Math.round(pixels(getComputedStyle(root).paddingLeft) + 24 - Math.max(0, edge))}px`, 'box-sizing': 'border-box' });
+    }
     if (recipe === 'split') sideBySide(k, split, false, 'minmax(0, 1fr) minmax(0, 1.1fr)');
     if (stack) {
       const m = box(split.media);
@@ -703,9 +716,9 @@ function bridge(placeDot, resolveOptions) {
   // page has another width, and while its pictures arrive (they give the parts their sizes).
   let verdicts = {};
   let told = '';
-  let offered = config.site ? [] : null; // the areas that have a dot; of a live page, those the page above says
+  let offered = config.arranged ? [] : null; // the areas that have a dot; of arrangements, those the page above says
   function check() {
-    if (!config.site || config.focus) return;
+    if (!config.arranged || config.focus) return;
     const x = window.scrollX;
     const y = window.scrollY;
     const results = {};
@@ -727,7 +740,7 @@ function bridge(placeDot, resolveOptions) {
   let checking = null;
   let checks = 0;
   const checkSoon = () => {
-    if (!config.site || config.focus || checks > 40) return;
+    if (!config.arranged || config.focus || checks > 40) return;
     clearTimeout(checking);
     checking = setTimeout(() => {
       checks += 1;
@@ -909,6 +922,27 @@ function bridge(placeDot, resolveOptions) {
 
   apply(config.choices);
 
+  // When the page's styles change after it was arranged (see `late` below), what was laid out
+  // by the old sizes is laid out again: here at once for the option a thumbnail shows, in the
+  // large frame by trying everything anew.
+  if (config.arranged) {
+    let restyled = null;
+    new MutationObserver(() => {
+      arrangedAt.clear();
+      if (!config.focus) {
+        checkSoon();
+        return;
+      }
+      clearTimeout(restyled);
+      restyled = setTimeout(() => {
+        for (const [id, was] of placed) {
+          const recipe = recipeOf(id, was.option);
+          if (recipe) attempt(id, was.option, recipe);
+        }
+      }, 60);
+    }).observe(document.head, { childList: true, subtree: true, characterData: true });
+  }
+
   if (config.focus) {
     // A thumbnail: report where the one area is, scrolled into sight, until the styles have
     // settled. Timers, not frames: a frame that is not shown yet gets few of them.
@@ -1010,7 +1044,8 @@ function bridge(placeDot, resolveOptions) {
     syncDots();
     apply(message.choices);
     window.scrollTo(0, y);
-    check();
+    if (config.late) checkSoon();
+    else check();
   }
 
   let view = { open: null, chosen: [] };
@@ -1121,7 +1156,10 @@ function bridge(placeDot, resolveOptions) {
   setInterval(unclip, 400);
   draw();
   say({ type: 'ready' });
-  check();
+  // Styles that are made after the page is there (Tailwind writes them once it has read the
+  // page's classes) are waited for: what is measured without them says nothing.
+  if (config.late) setTimeout(checkSoon, 1500);
+  else check();
   // A picture that arrives gives its part its size; so does a font.
   window.addEventListener('load', checkSoon);
   document.addEventListener('load', checkSoon, true);
@@ -1134,12 +1172,13 @@ const layouts = new WeakMap();
 /** What a frame shows of an analysis: the page, the options kept aside, and the areas they belong to. */
 function documentParts(analysis, sectionGrids) {
   const roots = [];
-  const page = sanitize(analysis.page, null, roots, sectionGrids, analysis.site);
+  const arranged = analysis.arranged === true;
+  const page = sanitize(analysis.page, null, roots, sectionGrids, analysis.site, arranged);
   const store = [];
   const areas = analysis.areas.map((area) => {
     const options = area.options.map((option) => {
       const slots = [];
-      const html = sanitize(option.html, option.keep ? area.decision : null, slots, sectionGrids, analysis.site);
+      const html = sanitize(option.html, option.keep ? area.decision : null, slots, sectionGrids, analysis.site, arranged);
       store.push(`<div data-pe-option="${area.id} ${option.id}">${html}</div>`);
       return { id: option.id, slots, ...(option.recipe ? { recipe: option.recipe } : {}) };
     });
@@ -1151,8 +1190,8 @@ function documentParts(analysis, sectionGrids) {
 }
 
 export function activeAreas(analysis, choices) {
-  // The areas of a live page do not lie inside one another.
-  if (!analysis.areas.length || analysis.site) return analysis.areas;
+  // Areas whose options are arrangements do not lie inside one another.
+  if (!analysis.areas.length || analysis.arranged) return analysis.areas;
   const layout = layouts.get(analysis) ?? documentParts(analysis).layout;
   const active = resolveOptions(layout, choices);
   return analysis.areas.filter((area) => active.has(area.id));
@@ -1180,7 +1219,8 @@ export function buildDocument(analysis, assets, { token, choices = {}, focus = n
   const styles = assets.tailwind
     ? `<script nonce="${n}" src="${TAILWIND}" crossorigin="anonymous"></script><style type="text/tailwindcss">${sheet}</style>`
     : `<style>${sheet}</style>`;
-  const config = { token, focus, choices, layout: parts.layout, site: Boolean(assets.site) };
+  // `arranged`: the options are arrangements, to be tried here; `late`: the styles are made by a script after the page is there.
+  const config = { token, focus, choices, layout: parts.layout, site: Boolean(assets.site), arranged: analysis.arranged === true, late: Boolean(assets.tailwind) && !assets.site };
   // A project with a dark variant is shown dark unless light was asked for.
   const root = assets.dark && assets.scheme !== 'light' ? ' class="dark" data-theme="dark" style="color-scheme:dark"' : '';
   const carried = (attributes) => Object.entries(attributes ?? {})
@@ -1338,7 +1378,7 @@ export class Preview {
     this.post(this.pending);
   }
 
-  /** Of a live page: the areas that have a dot, those whose options held when they were tried. */
+  /** Of arrangements: the areas that have a dot, those whose options held when they were tried. */
   offer(areas) {
     this.offered = areas;
     this.post({ type: 'offer', areas });
@@ -1379,9 +1419,9 @@ export class Preview {
  * changed its width.
  */
 export function mountThumb(box, analysis, assets, areaId, choices, { width, height }, onFit) {
-  // An arrangement is told from another by its whole shape: of a live page the whole area is
-  // shown, however small; so is an empty state, which is placed by the space around it.
-  const whole = analysis.site === true || analysis.areas.find((area) => area.id === areaId)?.decision === 'nothing-to-show';
+  // An arrangement is told from another by its whole shape: the whole area is shown, however
+  // small; so is an empty state, which is placed by the space around it.
+  const whole = analysis.arranged === true || analysis.areas.find((area) => area.id === areaId)?.decision === 'nothing-to-show';
   const token = newToken();
   const frame = makeFrame('');
   frame.setAttribute('tabindex', '-1');
@@ -1405,7 +1445,7 @@ export function mountThumb(box, analysis, assets, areaId, choices, { width, heig
     // inside the thumbnail so its center stays visible even in portrait previews.
     const maxHeight = Math.min(150, box.clientWidth * 0.7);
     // A tall area is laid out in a frame as tall as it is, once: what lies below a frame's edge is not drawn.
-    if (analysis.site && !grown && h > height) {
+    if (analysis.arranged && !grown && h > height) {
       grown = true;
       frame.style.height = `${Math.min(Math.ceil(h) + 40, height * 6)}px`;
     }

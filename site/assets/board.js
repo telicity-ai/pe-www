@@ -3,12 +3,16 @@
 // The page arrives in pieces, the areas included. Of each area the answer says which stretch of
 // the page it is, and then brings its options one by one. `assemble` gives what can be drawn at
 // any moment: an area becomes a choice once its place is known and its options are there.
+//
+// An option is either markup of its own (the sample) or an arrangement: a recipe by which the
+// preview lays out the area's own elements anew. An answer with arrangements says so in its plan
+// ("arranged"); its options are tried on the page before they are offered (see app.js).
 import { RepoError } from './github.js';
 import { parseMarkup } from './preview.js';
 
 /** What has arrived so far. */
 export function newBoard(file) {
-  return { file, plan: [], areas: new Map(), css: '', page: '', pageDone: false, conversation: false, title: '', summary: '', done: false, site: null, sheets: [] };
+  return { file, plan: [], areas: new Map(), css: '', page: '', pageDone: false, conversation: false, title: '', summary: '', done: false, site: null, sheets: [], arranged: false };
 }
 
 function areaOf(board, id) {
@@ -24,6 +28,7 @@ export function take(board, event) {
       Object.assign(board, newBoard(board.file));
       return true;
     case 'plan':
+      board.arranged ||= event.arranged === true;
       board.plan = event.areas;
       for (const planned of event.areas) {
         const area = areaOf(board, planned.id);
@@ -37,6 +42,7 @@ export function take(board, event) {
     case 'site':
       // A live page: its address, and what its <html> and <body> carry for its styles to select on.
       board.site = { url: event.url, html: event.html ?? {}, body: event.body ?? {} };
+      board.arranged = true;
       board.title = event.title || board.title;
       return false;
     case 'sheet':
@@ -46,6 +52,12 @@ export function take(board, event) {
       board.page += event.text;
       return true;
     case 'page-end':
+      board.pageDone = true;
+      return true;
+    case 'marked':
+      // The page once more, whole, as a browser reads it and with its groups marked: it takes
+      // the place of the pieces, and the places of the areas are stretches of it.
+      board.page = event.text;
       board.pageDone = true;
       return true;
     case 'screen':
@@ -140,9 +152,10 @@ export function assemble(board, fallbackTitle = '') {
     slot.setAttribute('id', area.id);
     from.replaceWith(slot);
     to.remove();
-    // Of a live page's options none is suggested here: which one is, is known once they have
-    // been tried on the page (see `offered` in app.js).
-    const pick = board.site ? null : area.options.find((o) => o.suggested) ?? area.options[0];
+    // Of arrangements none is suggested here: which one is, is known once they have been tried
+    // on the page (see `offered` in app.js).
+    const drawn = area.options.filter((o) => !o.recipe);
+    const pick = drawn.find((o) => o.suggested) ?? drawn[0];
     const today = holder.innerHTML;
     areas.set(area.id, {
       id: area.id,
@@ -162,10 +175,11 @@ export function assemble(board, fallbackTitle = '') {
   return {
     ...(board.conversation ? { conversation: true } : {}),
     ...(board.site ? { site: true } : {}),
+    ...(board.arranged ? { arranged: true } : {}),
     screen: { title: board.title || fallbackTitle, summary: board.summary, file: board.file },
     css: board.css,
     page: doc.body.innerHTML,
-    // In the order of the plan: for a live page, the part that matters most first.
+    // In the order of the plan: of arrangements, the part that matters most first.
     areas: board.plan.map((planned) => areas.get(planned.id)).filter(Boolean),
     waiting: !board.done,
   };

@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { ElementScan, Reader, SOURCE_CODE, Variant, findElement, findStart, isCompleteConversation, planChoice, repeatedLine } from '../api/_lib/answer.js';
-import { DECISIONS, PATTERNS } from '../api/_lib/catalog.js';
-import { screenTask, systemPrompt, variantTask } from '../api/_lib/brief.js';
+import { Reader, SOURCE_CODE, isCompleteConversation, repeatedLine } from '../api/_lib/answer.js';
+import { PATTERNS } from '../api/_lib/catalog.js';
+import { ARRANGEMENTS, areasSystem, areasTask, screenTask, systemPrompt } from '../api/_lib/brief.js';
+import { candidates, markPage, outline } from '../api/_lib/page.js';
+import { planEvents, planOf, readAreas } from '../api/_lib/plan.js';
 import { conversationParts } from '../site/assets/github.js';
 import { newBoard, take } from '../site/assets/board.js';
 
@@ -19,14 +21,14 @@ function read(text, size) {
 }
 
 test('markers are found however the text is cut into pieces', () => {
-  const text = '```\n@@AREA a | - | checkbox | Label | <div class="x">\n@@PAGE\n<div>\n  <p>a@@b</p>\n</div>\n@@WHERE a | <div class="x">\n@@TITLE Home\n@@END\n```';
+  const text = '```\n@@CSS\n@@PAGE\n<div>\n  <p>a@@b</p>\n</div>\n@@TITLE Home\n@@SUMMARY A page | with a bar.\n@@END\n```';
   const whole = read(text, text.length);
   assert.deepEqual(whole, [
-    ['marker', 'AREA', 'a | - | checkbox | Label | <div class="x">'],
+    ['marker', 'CSS', ''],
     ['marker', 'PAGE', ''],
     ['text', '<div>\n  <p>a@@b</p>\n</div>\n'],
-    ['marker', 'WHERE', 'a | <div class="x">'],
     ['marker', 'TITLE', 'Home'],
+    ['marker', 'SUMMARY', 'A page | with a bar.'],
     ['marker', 'END', ''],
   ]);
   for (const size of [1, 2, 3, 7]) assert.deepEqual(read(text, size), whole, `in pieces of ${size}`);
@@ -41,72 +43,6 @@ test('text is passed on before its line has ended', () => {
   assert.equal(out.join(''), '<div class="a">@@END is text here\n');
 });
 
-test('a line of the plan names an area, its patterns, its label and how its element begins', () => {
-  const seen = new Set();
-  const area = planChoice('Save Bar | save-settings | sticky-save-bar, nope, sticky-header | Where Save sits | <div class="a || b"><button class="x"', seen);
-  assert.deepEqual(area, {
-    id: 'save-bar',
-    wanted: 'save-bar',
-    label: 'Where Save sits',
-    options: [{ id: 'sticky-save-bar', pattern: 'sticky-save-bar', suggested: true }, { id: 'sticky-header', pattern: 'sticky-header' }],
-    decision: 'save-settings',
-    anchor: '<div class="a || b"><button class="x"',
-  });
-  assert.equal(planChoice('save-bar | - | checkbox | again', seen), null, 'the same area twice');
-  assert.equal(planChoice('other | - | no-such-pattern | x', seen), null, 'no pattern of the catalog');
-  assert.equal(planChoice('third | - | checkbox | Only a label', seen).anchor, undefined);
-});
-
-const PAGE = '<div>\n<div class="flex flex-col gap-2"><h1>T</h1></div>\n<form><section class="card [&>svg]:size-4" data-x="1>2"><!-- a > b --><img src=x><br/>\n<div class="flex flex-col gap-2">\n<label>Email</label><input></div></section></form><p>after</p></div>';
-
-test('the end of an element is found as it arrives', () => {
-  const text = '\n  <ul class="a"><li>1<br></li>\n<li><svg data-icon="a:b"></svg></li></ul><p>next</p>';
-  for (const size of [1, 4, text.length]) {
-    const scan = new ElementScan();
-    let end = -1;
-    for (let i = 0; i < text.length && end < 0; i += size) end = scan.push(text.slice(i, i + size));
-    assert.equal(text.slice(scan.from, end), '<ul class="a"><li>1<br></li>\n<li><svg data-icon="a:b"></svg></li></ul>', `in pieces of ${size}`);
-  }
-  const single = new ElementScan();
-  const end = single.push('<input type="x"> <p>');
-  assert.equal(end, 16);
-  assert.equal(new ElementScan().push('<div><p>never closed'), -1);
-});
-
-test('an element is found by how it begins', () => {
-  const at = (anchor) => { const found = findElement(PAGE, anchor); return found && PAGE.slice(found.from, found.to); };
-  assert.equal(at('<section class="card [&>svg]:size-4" data-x="1>2">'), PAGE.slice(PAGE.indexOf('<section'), PAGE.indexOf('</form>')));
-  // Two elements open alike: what follows the opening tag tells them apart.
-  assert.equal(at('<div class="flex flex-col gap-2"><label>Email'), '<div class="flex flex-col gap-2">\n<label>Email</label><input></div>');
-  assert.equal(at('<div class="flex flex-col gap-2">'), '<div class="flex flex-col gap-2"><h1>T</h1></div>');
-  // A copy that is off after its opening tag is still found by that tag, unless it must be exact.
-  assert.equal(at('<div class="flex  flex-col gap-2" ><h2>Other'), '<div class="flex flex-col gap-2"><h1>T</h1></div>');
-  assert.equal(findStart(PAGE, '<div class="flex flex-col gap-2"><h2>Other', true), -1);
-  // A beginning that was cut short in the middle of its opening tag.
-  assert.equal(at('<section class="card [&>svg]:si...'), PAGE.slice(PAGE.indexOf('<section'), PAGE.indexOf('</form>')));
-  assert.equal(at('<nav class="none">'), null);
-  assert.equal(at('not a tag'), null);
-});
-
-function variant(area, option, text) {
-  const answer = new Variant(area, option);
-  const reader = new Reader((name, rest) => answer.marker(name, rest), (part) => answer.text(part));
-  reader.push(text);
-  reader.end();
-  return answer.result();
-}
-
-test('the answer about an option gives its label, its reason and its element', () => {
-  const area = planChoice('save | - | sticky-save-bar, sticky-header | Where Save sits', new Set());
-  assert.deepEqual(variant(area, area.options[0], '@@OPTION A bar that stays at the bottom\n@@WHY The list is long.\n@@HTML\n<div class="sticky">Save</div>\n<script>alert(1)</script>\n@@END\nmore'), {
-    t: 'option', area: 'save', id: 'sticky-save-bar', pattern: 'sticky-save-bar', label: 'A bar that stays at the bottom', suggested: true, because: 'The list is long.', html: '<div class="sticky">Save</div>',
-  });
-  assert.deepEqual(variant(area, area.options[1], '@@OPTION In the header\n@@WHY not asked for\n@@HTML\n<header>Save</header>\n@@END'), {
-    t: 'option', area: 'save', id: 'sticky-header', pattern: 'sticky-header', label: 'In the header', html: '<header>Save</header>',
-  });
-  assert.equal(variant(area, area.options[0], '@@OPTION x\n@@END'), null, 'no HTML');
-});
-
 test('source code is told from HTML', () => {
   for (const html of ['<div class="a [&_svg]:size-4 data-[state=open]:b">{"key":"value"}</div>', '<p>Use {name} here, a@b.com at 12:30</p>', '<svg data-icon="lucide:x" viewBox="0 0 24 24"></svg>']) {
     assert.equal(SOURCE_CODE.test(html), false, html);
@@ -116,52 +52,86 @@ test('source code is told from HTML', () => {
   }
 });
 
-test('the example in the instructions uses the catalog and the form it describes', () => {
-  const patterns = new Set(PATTERNS.map((p) => p.id));
-  const decisions = new Set(DECISIONS.map((d) => d.id));
+test('the instructions describe the form that is read, and name arrangements the catalog knows', () => {
   const task = screenTask();
   const example = task.slice(task.indexOf('EXAMPLE'));
-  const page = example.slice(example.indexOf('@@PAGE\n') + 7, example.indexOf('@@WHERE'));
-  const lines = example.split('\n').filter((line) => line.startsWith('@@AREA'));
-  assert.equal(lines.length, 2);
-  const seen = new Set();
-  for (const line of lines) {
-    const area = planChoice(line.slice('@@AREA'.length), seen);
-    assert.equal(area.options.length, 2, line);
-    assert.ok(area.options.every((o) => patterns.has(o.pattern)), line);
-    assert.ok(decisions.has(area.decision), line);
-    // The beginning that the plan gives is in the page, and the @@WHERE line repeats it.
-    assert.ok(findStart(page, area.anchor, true) >= 0, `${area.id} begins in the page as the plan says`);
-    assert.ok(example.includes(`@@WHERE ${area.id} | ${area.anchor}`), `${area.id} has its @@WHERE line`);
-    const found = findElement(page, area.anchor);
-    assert.match(variantTask(area, area.options[0], page.slice(found.from, found.to)), /@@WHY/);
-    assert.doesNotMatch(variantTask(area, area.options[1], '<div></div>'), /@@WHY/);
-  }
+  // The example is an answer in the form the task asks for: a page, then its name.
+  const seen = read(example.slice(example.indexOf('@@CSS'), example.indexOf('@@END') + 5), 9).filter(([kind]) => kind === 'marker').map(([, name]) => name);
+  assert.deepEqual(seen, ['CSS', 'PAGE', 'TITLE', 'SUMMARY', 'END']);
   assert.doesNotMatch(systemPrompt('en') + task, /<path\s+d=/, 'no drawing of an icon in the instructions');
-  assert.match(systemPrompt('ko'), /Korean/);
+  assert.doesNotMatch(systemPrompt('en') + task, /@@AREA|@@WHERE|catalog/i, 'the screen is written without a plan of areas');
+  assert.match(screenTask('short'), /stopped in the middle/);
+  // An arrangement that has a name in picky-eater's catalog carries it into the prompt a visitor takes away.
+  const patterns = new Set(PATTERNS.map((p) => p.id));
+  for (const [id, arrangement] of Object.entries(ARRANGEMENTS)) assert.ok(!arrangement.pattern || patterns.has(arrangement.pattern), `${id}: ${arrangement.pattern}`);
+  for (const kind of ['site', 'screen']) {
+    assert.match(areasSystem('ko', kind), /Korean/);
+    for (const lang of ['en', 'ko']) {
+      // The example of each task is an answer that is read: its arrangements are ones the parts can take.
+      const text = areasTask({ kind, name: 'x', outline: '[1] …', lang });
+      const sample = text.slice(text.indexOf('EXAMPLE'));
+      const list = [1, 2, 3, 4].map((n) => ({ n, from: n * 10, to: n * 10 + 5, fits: Object.keys(ARRANGEMENTS) }));
+      const { areas } = readAreas(sample.slice(sample.indexOf('@@AREA'), sample.indexOf('@@END') + 5), list);
+      assert.ok(areas.length >= 2 && areas.every((area) => area.label && area.picks.every((pick) => pick.because)), `${kind} ${lang}`);
+    }
+  }
+});
+
+const SCREEN = `<div class="min-h-screen bg-background" style="min-height:100vh"><aside data-slot="sidebar"><a class="l"><svg data-icon="lucide:home"></svg><span>All my projects</span></a><a class="l"><svg data-icon="lucide:cog"></svg><span>Account and billing</span></a></aside>
+<main class="p-6"><div class="flex items-center justify-between"><div class="text-2xl font-semibold">Projects</div><button class="btn">New project</button></div>
+<div class="grid grid-cols-3 gap-4" data-pe-group="9">${['Website', 'Mobile app', 'Billing'].map((name) => `<div class="rounded-lg border p-4"><div class="font-medium">${name}</div><p class="text-sm">Updated two days ago</p></div>`).join('')}</div>
+<form class="space-y-4"><div class="grid gap-2"><label>Name</label><input></div><div class="grid gap-2"><label>Owner</label><select><option>Me</option></select></div><div class="grid gap-2"><label>Notes</label><textarea></textarea></div></form>
+<select class="trigger"><span>Sort by name</span></select><p class="cut">The page was cut off he`;
+
+test('a screen written from source is marked and its parts are found as an application has them', () => {
+  const marked = markPage(SCREEN.replace(/<[^>]*$/, ''));
+  // Read as a browser reads it: what was open at the cut is closed, a styled trigger is a button.
+  assert.match(marked, /<button type="button" class="trigger"><span>Sort by name<\/span><\/button><p class="cut">The page was cut off he<\/p><\/main><\/div>$/);
+  assert.doesNotMatch(marked, /data-pe-group="9"/, 'a mark that the model wrote is taken off');
+  assert.match(marked, /<div class="grid grid-cols-3 gap-4" data-pe-group="3"><div class="rounded-lg border p-4" data-pe-item="">/);
+  assert.match(marked, /<form class="space-y-4" data-pe-group="3">/, 'the fields of a form are a group');
+  assert.doesNotMatch(marked, /<aside[^>]*data-pe-group/, 'the bar at the side is not');
+  const list = candidates(marked, { app: true });
+  assert.deepEqual(list.map((c) => c.kind), ['block', 'group', 'group']);
+  // Words set large head a part as a heading does; a name set bold heads a card.
+  assert.equal(list[0].heading, 'Projects');
+  assert.equal(list[0].opens, true);
+  assert.deepEqual(list[1].each, ['a heading', 'text']);
+  assert.deepEqual(list[1].fits, ['grid', 'rows', 'scroller', 'featured']);
+  // Fields are laid out in columns or in rows; none of them is put first or scrolled sideways.
+  assert.deepEqual(list[2].fits, ['grid', 'rows']);
+  assert.equal(outline(list).split('\n')[2], '[3] 3 items, each with text, a field: "Name" / "Owner" / "Notes". Can be: grid, rows');
+  assert.equal(marked.slice(list[1].from, list[1].to).startsWith('<div class="grid grid-cols-3 gap-4" data-pe-group="3">'), true);
+  const plan = planOf(list, [], 'ko', 'screen');
+  assert.deepEqual(plan.map((area) => area.label), ['화면 위쪽 배치', '항목 배치 방식', '항목 배치 방식']);
+  assert.deepEqual(planEvents([], { file: 'a.tsx' }), [{ t: 'plan', arranged: true, areas: [], file: 'a.tsx' }]);
 });
 
 test('the page puts the lines of an answer together', () => {
+  const MARKED = '<main><h1>T</h1><div data-pe-group="2"><p data-pe-item="">One</p><p data-pe-item="">Two</p></div></main>';
   const board = newBoard('src/Page.tsx');
   const lines = [
-    { t: 'plan', areas: [{ id: 'save', label: 'Where Save sits', decision: 'save-settings', options: ['sticky-save-bar', 'sticky-header'] }] },
     { t: 'page', text: '<main><h1>T</h1>' },
-    { t: 'page', text: '<div>Save</div></main>' },
-    { t: 'place', area: 'save', from: 16, to: 31 },
+    { t: 'page', text: '<div><p>One</p><p>Two</p>' },
     { t: 'page-end' },
     { t: 'screen', title: 'Settings', summary: 'S' },
-    { t: 'option', area: 'save', id: 'sticky-save-bar', pattern: 'sticky-save-bar', label: 'A bar', suggested: true, because: 'Long list.', html: '<div class="bar">Save</div>' },
-    { t: 'miss', area: 'save', id: 'sticky-header' },
+    { t: 'marked', text: MARKED },
+    { t: 'plan', arranged: true, areas: [{ id: 'area-1', label: 'How the two are laid out', options: ['grid', 'rows'] }] },
+    { t: 'place', area: 'area-1', from: MARKED.indexOf('<div'), to: MARKED.indexOf('</main>') },
+    { t: 'option', area: 'area-1', id: 'grid', recipe: 'grid', pattern: 'card-grid', because: 'Two short things.' },
+    { t: 'option', area: 'area-1', id: 'rows', recipe: 'rows', pattern: 'list-row' },
     { t: 'done' },
   ];
-  for (const line of lines) take(board, line);
-  assert.equal(board.page, '<main><h1>T</h1><div>Save</div></main>');
+  for (const line of lines.slice(0, 2)) take(board, line);
+  assert.equal(board.page, '<main><h1>T</h1><div><p>One</p><p>Two</p>');
+  for (const line of lines.slice(2)) take(board, line);
+  // The marked page takes the place of the pieces, and the area is a stretch of it.
+  assert.equal(board.arranged, true);
   assert.equal(board.done, true);
-  const area = board.areas.get('save');
-  assert.equal(board.page.slice(area.place.from, area.place.to), '<div>Save</div>');
-  assert.equal(area.label, 'Where Save sits');
-  assert.deepEqual(area.options, [{ id: 'sticky-save-bar', label: 'A bar', pattern: 'sticky-save-bar', html: '<div class="bar">Save</div>', suggested: true, because: 'Long list.' }]);
-  assert.deepEqual([...area.missing], ['sticky-header']);
+  const area = board.areas.get('area-1');
+  assert.match(board.page.slice(area.place.from, area.place.to), /^<div data-pe-group="2">.*<\/div>$/);
+  assert.equal(area.label, 'How the two are laid out');
+  assert.deepEqual(area.options.map((o) => [o.id, o.recipe, o.pattern, o.because]), [['grid', 'grid', 'card-grid', 'Two short things.'], ['rows', 'rows', 'list-row', undefined]]);
 });
 
 test('a page that repeats one line is noticed, closing tags are not', () => {
@@ -170,20 +140,6 @@ test('a page that repeats one line is noticed, closing tags are not', () => {
   assert.equal(repeatedLine(`<main>\n${`${wrapper}\n`.repeat(2)}${wrapper.slice(0, 9)}`), null);
   assert.equal(repeatedLine(`<main>\n${`${wrapper}\n`.repeat(2)}<p>Hi</p>\n`), null);
   assert.equal(repeatedLine(`<main>\n${'</div>\n'.repeat(6)}`), null);
-});
-
-test('in a page that was cut off, an element still open runs to its end', () => {
-  const page = '<main><div class="list"><div class="row">One</div><div class="row">Tw';
-  assert.equal(findElement(page, '<div class="list">'), null);
-  assert.deepEqual(findElement(page, '<div class="list">', true), { from: 6, to: page.length });
-  assert.deepEqual(findElement(page, '<div class="row">', true), { from: 24, to: 50 });
-});
-
-test('a beginning copied from the source (JSX) is found in the page', () => {
-  const page = '<main><div inert="false" class="flex shrink-0 gap-2">A</div><div data-provider-detail class="min-w-0">B</div></main>';
-  const at = (anchor) => { const found = findElement(page, anchor); return found && page.slice(found.from, found.to); };
-  assert.equal(at('<div data-provider-detail className="min-w-0"><ScrollArea className="h-full">'), '<div data-provider-detail class="min-w-0">B</div>');
-  assert.equal(at('<div inert={!canWrite} aria-disabled={!canWrite || undefined} className="flex shrink-0 gap-2">'), '<div inert="false" class="flex shrink-0 gap-2">A</div>');
 });
 
 test('open conversation previews require the title above messages and a separate composer below', () => {

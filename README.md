@@ -16,25 +16,32 @@ browser ── GitHub API ──▶ file tree, package.json            (the visi
    │
    └─ GET /api/storyboard?repo=…&ref=…&path=…&rel=…&css=… ──▶ Vercel function
                                                          │ fetches those files from raw.githubusercontent.com
-                                                         │ asks Solar (solar-pro4): one call writes the screen;
-                                                         │ each area's element then goes to a call per option
+                                                         │ asks Solar (solar-pro4) to write the screen as HTML,
+                                                         │ finds the parts of that page that can be arranged
+                                                         │ another way, and asks Solar which of them matter
                                                          ▼ passes the answer on as it is written
-   draws the page while it arrives,             ◀── one JSON object per line: plan, page, place, option, done
+   draws the page while it arrives,             ◀── one JSON object per line: page, marked, plan, place, option, done
    in a sandboxed frame with the project's own stylesheets
    (and Tailwind's browser build when the project uses Tailwind),
-   then the dots and the options; writes the prompt as options are picked
+   tries every arrangement there and offers those that hold;
+   writes the prompt as options are picked
 ```
 
 - **A storyboard** is the screen as static HTML, written with the class names the code uses, and
-  two or three areas of it with two options each beside the present state. An option names a
-  pattern of picky-eater's catalog. The instructions are in `api/_lib/brief.js`.
-- **The page is of one piece.** One call names the areas and writes the whole screen, the areas
-  included; an area is a stretch of that page, not something written apart from it. The plan
-  says how each area's element begins, so the function finds the element in the page as it is
-  written (`api/_lib/answer.js`) and, as soon as it is complete, has each option drawn by a call
-  of its own that is given that element. A screen shows after a few seconds; it is complete a
-  little after the page is. (An earlier version had the areas written apart from the page, by
-  calls that ran beside it: faster by some seconds, but the pieces did not always fit.)
+  up to three areas of it, each with up to three other arrangements beside the present state.
+  The instructions are in `api/_lib/brief.js`.
+- **The model writes the screen and nothing else that is shown.** An option is never markup of
+  its own: it is the area's own elements arranged another way, exactly as for a live web page
+  (see the next section, which says what the arrangements are and how they are checked). An
+  earlier version had the model write each option as HTML; those options lost content, invented
+  some, and did not always fit the page around them.
+- **The parts are found in the written page** (`api/_lib/page.js`), with a wider eye than for a
+  live page: in an application the rows of a group of settings, the fields of a form and tiles
+  with a number are items too, and words set large head a part as a heading does. A second,
+  small call then says which parts matter, what each choice is called and which arrangement it
+  would suggest (`api/_lib/plan.js`).
+- **A screen may have no area.** A sign-in panel or a narrow form has nothing that these
+  arrangements change; the screen is then shown as it is, with a word that says so.
 - **Icons are named, not drawn.** The model writes `<svg data-icon="lucide:plus">`; the page
   fetches the drawing from Iconify (`site/assets/icons.js`). Coordinates of icons were a quarter
   of what the model wrote, and often wrong.
@@ -44,8 +51,8 @@ browser ── GitHub API ──▶ file tree, package.json            (the visi
   visitor's system is set, with a switch beside it. What an application sets while it runs (a
   theme chosen in its settings) is not there.
 - **The function is given file names, not text.** It fetches the files itself, so it cannot be
-  used to send arbitrary text to the model. `api/_lib/answer.js` reads and bounds the answer; an
-  option that is the project's source code instead of HTML is broken off and asked for again.
+  used to send arbitrary text to the model. `api/_lib/answer.js` reads and bounds the answer; a
+  page that is the project's source code instead of HTML is broken off and asked for again.
 - **Markup from a model is not trusted.** `site/assets/preview.js` parses it and keeps only
   harmless elements and attributes; the frame is sandboxed without an origin of its own; and its
   Content Security Policy runs two scripts only and loads nothing else.
@@ -94,13 +101,14 @@ Node.js 20 or newer. `npm install` once (one dependency, for reading web pages).
 
 ```sh
 npm run dev -- --mock   # http://127.0.0.1:4321, the analysis plays back a recorded answer
-                        # (test/fixtures/answer.json: open ?repo=vercel/ai-chatbot;
+                        # (test/fixtures/answer.json: open ?repo=shadcn-ui/taxonomy;
                         #  MOCK_FILE=other.json, MOCK_SPEED=4 for four times as fast)
 UPSTAGE_API_KEY=… npm run dev   # the real analysis
 npm test
 ```
 
-The pattern catalog in `api/_lib/catalog.js` is generated from a picky-eater checkout:
+The pattern catalog in `api/_lib/catalog.js` is generated from a picky-eater checkout (an
+arrangement that has a name there carries it into the prompt; a test checks that it still has):
 
 ```sh
 npm run sync-catalog -- ../picky-eater

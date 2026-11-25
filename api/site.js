@@ -18,10 +18,12 @@
 // the area's own elements arranged another way (a recipe that the page showing it carries out
 // and then checks, see site/assets/preview.js). The model is asked once, for what needs a
 // reader: which parts matter, what each choice is called, and which arrangement it would
-// suggest and why. Without its answer the first parts of the page are offered without a suggestion.
-import { Reader, clean } from './_lib/answer.js';
-import { ARRANGEMENTS, siteAreasTask, siteSystem } from './_lib/brief.js';
+// suggest and why (api/_lib/plan.js). Without its answer the first parts of the page are offered
+// without a suggestion.
+import { clean } from './_lib/answer.js';
+import { areasSystem, areasTask } from './_lib/brief.js';
 import { absoluteCss, candidates, outline, readPage } from './_lib/page.js';
+import { planEvents, planOf, readAreas } from './_lib/plan.js';
 import { MODEL, SolarError, ask } from './_lib/solar.js';
 import { WebError, fetchPublic, publicUrl } from './_lib/web.js';
 
@@ -35,8 +37,6 @@ const PAGE_CHARS = 1_500_000; // what is left of it without scripts
 const SHEETS = 80;
 const SHEET_BYTES = 2_000_000;
 const SHEETS_CHARS = 4_000_000;
-const AREAS = 5; // more than are shown: an area whose arrangements do not hold on the page is left out there
-const SPARE = 3; // parts the model did not name, offered when those it named do not hold
 const DEADLINE_MS = 60_000;
 
 const PER_MINUTE = 6;
@@ -70,85 +70,6 @@ function limited(ip) {
 }
 
 const one = (value) => (Array.isArray(value) ? value[0] : value);
-
-/** What an area is called when the model does not say. */
-const LABELS = {
-  en: { opens: 'How the page opens', block: 'How this part is laid out', group: 'How these items are laid out', under: (title) => `How “${title}” is laid out` },
-  ko: { opens: '첫 화면 구성', block: '이 부분의 배치', group: '항목 배치 방식', under: (title) => `“${title}” 배치 방식` },
-};
-
-/**
- * Reads the model's answer into areas: `[{ candidate, label, picks: [{ id, because }] }]`, in
- * the order of the answer. A part named twice, a part inside another, and an arrangement that
- * the part cannot take are left out.
- */
-export function readAreas(text, list) {
-  const areas = [];
-  let summary = null;
-  let area = null;
-  const reader = new Reader((name, rest) => {
-    if (name === 'SUMMARY') summary = rest;
-    if (name === 'AREA') {
-      area = null;
-      const [number, ...label] = rest.split('|');
-      const candidate = list[Number(number.replace(/[^0-9]/g, '')) - 1];
-      if (!candidate || areas.length >= AREAS || areas.some((a) => a.candidate.from < candidate.to && candidate.from < a.candidate.to)) return;
-      area = { candidate, label: clean(label.join('|'), 70), picks: [] };
-      areas.push(area);
-    }
-    if (name === 'PICK' && area) {
-      const [id, ...reason] = rest.split('|');
-      const recipe = id.trim().toLowerCase();
-      if (area.candidate.fits.includes(recipe) && !area.picks.some((pick) => pick.id === recipe)) area.picks.push({ id: recipe, because: clean(reason.join('|'), 200) });
-    }
-  }, () => {});
-  reader.push(text);
-  reader.end();
-  return { areas: areas.filter((a) => a.picks.length), summary };
-}
-
-/**
- * The areas as they are sent: `[{ id, label, place, options: [{ id, because? }] }]`. `picked`
- * is what the model named (see `readAreas`); without it, the part the page opens with and the
- * groups that follow it are offered, nothing suggested. Each area brings every arrangement its
- * part can take: those that were given a reason first, in their order.
- */
-export function planOf(list, picked, lang) {
-  const areas = [...picked];
-  const free = (candidate) => !areas.some((a) => a.candidate.from < candidate.to && candidate.from < a.candidate.to);
-  const add = (candidate) => areas.push({ candidate, label: null, picks: [] });
-  if (!areas.length) {
-    const opening = list.find((c) => c.kind === 'block' && c.opens);
-    for (const candidate of [opening, ...list.filter((c) => c.kind === 'group')].filter(Boolean).slice(0, AREAS)) add(candidate);
-  } else {
-    // What the model named may not hold when it is tried on the page: some groups that it did
-    // not name stand by. Those under a heading of their own, or of items with headings, are
-    // parts of the page itself rather than the inside of a picture of a product.
-    const spare = list.filter((c) => c.kind === 'group' && c.items >= 3 && (c.title || c.each.includes('a heading')) && free(c));
-    for (const candidate of spare.slice(0, SPARE)) add(candidate);
-  }
-  const names = LABELS[lang] ?? LABELS.en;
-  return areas.map(({ candidate, label, picks }) => ({
-    id: `area-${candidate.n}`,
-    label: label ?? (candidate.kind === 'group' ? (candidate.title ? names.under(clean(candidate.title, 40)) : names.group) : candidate.opens ? names.opens : names.block),
-    place: { from: candidate.from, to: candidate.to },
-    options: [...picks, ...candidate.fits.filter((id) => !picks.some((pick) => pick.id === id)).map((id) => ({ id }))],
-  }));
-}
-
-/** The lines of the answer that say what the areas are. */
-export function planEvents(plan, { file, title, summary }) {
-  const events = [{ t: 'plan', areas: plan.map(({ id, label, options }) => ({ id, label, options: options.map((o) => o.id) })), file }];
-  for (const area of plan) events.push({ t: 'place', area: area.id, ...area.place });
-  events.push({ t: 'screen', title, summary: clean(summary, 220) ?? '' });
-  for (const area of plan) {
-    for (const option of area.options) {
-      const pattern = ARRANGEMENTS[option.id].pattern;
-      events.push({ t: 'option', area: area.id, id: option.id, recipe: option.id, ...(pattern ? { pattern } : {}), ...(option.because ? { because: option.because } : {}) });
-    }
-  }
-  return events;
-}
 
 const tokens = (usage) => (usage ? { prompt: usage.prompt_tokens, cached: usage.prompt_tokens_details?.cached_tokens, completion: usage.completion_tokens } : undefined);
 
@@ -201,7 +122,7 @@ async function draw({ address, lang, send, signal }) {
 
   // The model is asked while the stylesheets are fetched: it needs the outline alone.
   let text = '';
-  const asking = ask({ messages: [{ role: 'system', content: siteSystem(lang) }, { role: 'user', content: siteAreasTask({ url: got.url.href, title: page.title, outline: outline(list), lang }) }], maxTokens: 700, signal, onText: (piece) => { text += piece; } })
+  const asking = ask({ messages: [{ role: 'system', content: areasSystem(lang, 'site') }, { role: 'user', content: areasTask({ kind: 'site', name: `${page.title || got.url.href} (${got.url.href})`, outline: outline(list), lang }) }], maxTokens: 700, signal, onText: (piece) => { text += piece; } })
     .then((answer) => ({ answer }), (error) => ({ error }));
 
   const sheets = await readSheets(page.sheets);
@@ -225,7 +146,8 @@ async function draw({ address, lang, send, signal }) {
   const plan = planOf(list, areas, lang);
   if (!plan.length) throw new Failure(422, 'empty_page', 'The page has no part to arrange another way');
   marks.plan = at();
-  for (const event of planEvents(plan, { file: got.url.href, title: shortTitle(page.title, got.url), summary })) send(event);
+  send({ t: 'screen', title: shortTitle(page.title, got.url), summary: clean(summary, 220) ?? '' });
+  for (const event of planEvents(plan, { file: got.url.href })) send(event);
   return { ms: at(), marks, calls };
 }
 

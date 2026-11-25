@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { absoluteCss, candidates, outline, readPage } from '../api/_lib/page.js';
-import { planEvents, planOf, readAreas } from '../api/site.js';
+import { planEvents, planOf, readAreas } from '../api/_lib/plan.js';
 import { privateAddress, publicUrl } from '../api/_lib/web.js';
 import { buildPrompt } from '../site/assets/prompt.js';
 
@@ -88,10 +88,11 @@ test('the answer about a live page is read into areas, and without one the page 
   const plan = planOf(list, areas, 'en');
   // What the model gave a reason for comes first; then the other arrangements the part can take.
   assert.deepEqual(plan[0].options.map((o) => o.id), ['grid', 'zigzag', 'scroller', 'featured']);
-  const events = planEvents(plan, { file: 'https://acme.example.org/pricing/', title: 'Pricing', summary });
-  assert.deepEqual(events.map((e) => e.t), ['plan', 'place', 'screen', 'option', 'option', 'option', 'option']);
-  assert.deepEqual(events[3], { t: 'option', area: 'area-1', id: 'grid', recipe: 'grid', pattern: 'card-grid', because: 'Three plans with the same features are compared fastest side by side.' });
-  assert.equal(events[4].because, undefined);
+  const events = planEvents(plan, { file: 'https://acme.example.org/pricing/' });
+  assert.deepEqual(events.map((e) => e.t), ['plan', 'place', 'option', 'option', 'option', 'option']);
+  assert.equal(events[0].arranged, true);
+  assert.deepEqual(events[2], { t: 'option', area: 'area-1', id: 'grid', recipe: 'grid', pattern: 'card-grid', because: 'Three plans with the same features are compared fastest side by side.' });
+  assert.equal(events[3].because, undefined);
   // No answer: the groups of the page are offered, nothing suggested, named in the page's language.
   const bare = planOf(list, readAreas('I cannot help with that.', list).areas, 'ko');
   assert.equal(bare[0].label, '“Plans for every team” 배치 방식');

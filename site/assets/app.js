@@ -36,6 +36,8 @@ const state = {
 // The picks of a project, and for a repository the analyses they were made on, so that coming
 // back to the page finds them again. One entry per project, the five latest repositories.
 const STORE = 'pe-picks:';
+// 2: the options of a repository's screen are arrangements; analyses kept from before are not shown again.
+const STORE_VERSION = 2;
 const storeKey = (project) => `${STORE}${project.sample ? 'sample' : project.site ? `site:${project.site}` : `${project.repo.owner}/${project.repo.name}`.toLowerCase()}`;
 
 function saveNow(project) {
@@ -49,9 +51,10 @@ function saveNow(project) {
       continue;
     }
     if (!screen.analysis || screen.status !== 'ready') continue;
-    screens[screen.id] = { title: screen.title, choices: screen.choices, ...(project.sample ? {} : { analysis: screen.analysis }) };
+    // Of a screen whose options are arrangements all of it is kept: which of them hold is found anew on the page.
+    screens[screen.id] = { title: screen.title, choices: screen.choices, ...(project.sample ? {} : { analysis: screen.full ?? screen.analysis }) };
   }
-  const data = { v: 1, at: Date.now(), tree: project.scan?.treeSha ?? null, screens, generated: project.generated, ...(project.text !== project.generated ? { text: project.text } : {}) };
+  const data = { v: STORE_VERSION, at: Date.now(), tree: project.scan?.treeSha ?? null, screens, generated: project.generated, ...(project.text !== project.generated ? { text: project.text } : {}) };
   try {
     localStorage.setItem(storeKey(project), JSON.stringify(data));
     const others = Object.keys(localStorage).filter((key) => key.startsWith(STORE) && key !== `${STORE}sample`)
@@ -74,7 +77,7 @@ function save(project) {
 function kept(project) {
   try {
     const data = JSON.parse(localStorage.getItem(storeKey(project)));
-    if (data?.v !== 1 || typeof data.screens !== 'object') return null;
+    if (data?.v !== STORE_VERSION || typeof data.screens !== 'object') return null;
     if (!project.sample && data.tree !== (project.scan?.treeSha ?? null)) return null;
     return data;
   } catch {
@@ -127,11 +130,12 @@ function rewrite(project = state.project) {
 }
 
 /**
- * Of a live page: what is offered of its analysis. An option of a live page is an arrangement
- * that the preview tries on the page itself; `checks` says for each whether it held (null) or
- * why not. Only those that held are offered, at most three per area, and an area with none is
- * no choice. The first one the model gave a reason for is the suggestion. Three areas at most,
- * those that matter most, in the order of the page. Until the page has been tried, nothing is.
+ * What is offered of an analysis whose options are arrangements (a live page, a screen of a
+ * repository). An arrangement is tried by the preview on the page itself; `checks` says for
+ * each whether it held (null) or why not. Only those that held are offered, at most three per
+ * area, and an area with none is no choice. The first one the model gave a reason for is the
+ * suggestion. Three areas at most, those that matter most, in the order of the page. Until the
+ * page has been tried, nothing is.
  */
 function offered(full, checks, choices = {}) {
   const areas = [];
@@ -154,15 +158,15 @@ function offered(full, checks, choices = {}) {
 
 /** Takes in what was put together of a screen, and returns what is shown of it. */
 function settle(screen, full) {
-  if (!full.site) return full;
+  if (!full.arranged) return full;
   screen.full = full;
   return offered(full, screen.checks, screen.choices);
 }
 
-/** The preview has tried a live page's arrangements (again): what is offered follows. */
+/** The preview has tried the arrangements of the screen it shows (again): what is offered follows. */
 function tried({ results }) {
   const screen = state.screen;
-  if (!screen?.full?.site) return;
+  if (!screen?.full) return;
   screen.checks = results;
   const before = JSON.stringify(screen.analysis?.areas.map((area) => [area.id, area.options.map((option) => option.id)]));
   const analysis = offered(screen.full, results, screen.choices);
@@ -546,7 +550,7 @@ function select(screen, { open = null } = {}) {
   screen.assets.scheme = state.scheme;
   // With no pick anywhere the prompt speaks of the screen that is shown.
   rewrite();
-  // Of a live page the frame holds every arrangement, to try them; which are offered is said after.
+  // The frame holds every arrangement, to try them; which are offered is said after.
   preview.load(screen.full ?? screen.analysis, screen.assets, screen.choices, screen.title);
   if (screen.full) preview.offer(screen.analysis.areas.map((area) => area.id));
   preview.view(open, Object.keys(screen.choices));
@@ -703,6 +707,7 @@ async function analyzeScreen(screen, run = ++state.run) {
         // and a composer. Reapply their choices once all new options are known.
         previousChoices = screen.choices;
         screen.analysis = null;
+        screen.full = null;
       } else {
         await loadIcons(iconsIn(screen.analysis.page + screen.analysis.areas.map((a) => a.options.map((o) => o.html).join('')).join('')));
         screen.status = 'ready';
@@ -718,12 +723,15 @@ async function analyzeScreen(screen, run = ++state.run) {
     } catch {
       // The styles did not come: the screen is analyzed anew.
       screen.analysis = null;
+      screen.full = null;
       screen.choices = {};
     }
   }
   screen.failed = false;
   screen.status = 'loading';
   screen.tries = (screen.tries ?? 0) + 1;
+  // What the preview found of an earlier answer says nothing of this one.
+  screen.checks = null;
   screen.resume = (again) => {
     run = again;
     if (showing) {
@@ -769,6 +777,9 @@ async function analyzeScreen(screen, run = ++state.run) {
     // A failure that comes at once is one the CDN kept: the next address is asked instead.
     for (let attempt = 0; ; attempt += 1) {
       board = newBoard(screen.path);
+      // The options of an analysis are arrangements, which the frame has to know from the first
+      // piece of the page it shows: they are tried there once they come.
+      board.arranged = true;
       if (project.site) screen.assets.css = board.sheets;
       try {
         await streamBoard(boardUrl(project, screen, files), (event) => {
@@ -778,8 +789,9 @@ async function analyzeScreen(screen, run = ++state.run) {
           // The page is all there before anything is asked of the model: it is shown at once.
           if (event.t === 'page-end' && project.site) soon();
         });
-        // An answer in which no area found its place in the page is asked for once more.
-        if (attempt === 0 && !current().areas.length) {
+        // An answer in which no area found its place in the page is asked for once more. Not one
+        // whose areas are parts found in the page itself: there, none is an answer.
+        if (attempt === 0 && !board.arranged && !current().areas.length) {
           screen.tries += 1;
           continue;
         }
@@ -795,7 +807,7 @@ async function analyzeScreen(screen, run = ++state.run) {
     clearTimeout(timer);
     timer = null;
     const whole = current();
-    if (!whole.areas.length || (files.assets.conversation && !whole.conversation)) throw new RepoError('failed');
+    if ((!whole.areas.length && !whole.arranged) || (files.assets.conversation && !whole.conversation)) throw new RepoError('failed');
     const analysis = settle(screen, whole);
     await loadIcons(iconsIn(markupOf(board)));
     screen.status = 'ready';
@@ -890,9 +902,11 @@ async function analyzeRepo(input) {
     const before = kept(state.project);
     for (const screen of state.project.screens) {
       const was = before?.screens[screen.id];
-      if (!was?.analysis?.areas?.length || typeof was.analysis.page !== 'string') continue;
+      if (!Array.isArray(was?.analysis?.areas) || typeof was.analysis.page !== 'string' || (!was.analysis.areas.length && !was.analysis.arranged)) continue;
       screen.saved = was;
-      screen.analysis = was.analysis;
+      // Of arrangements, those that were picked are offered until the page has been tried again.
+      screen.choices = was.choices ?? {};
+      screen.analysis = settle(screen, was.analysis);
       screen.title = was.title || screen.title;
       prepare(screen, was.choices);
       screen.status = 'stored';
@@ -1136,7 +1150,7 @@ for (const button of document.querySelectorAll('[data-lang]')) {
       state.screen = fresh.screens.find((s) => s.id === current) ?? fresh.screens[0];
     } else {
       // An analysis keeps the language it was made in; the prompt around it follows the page,
-      // and so do the names of a live page's arrangements, which are this page's own words.
+      // and so do the names of the arrangements, which are this page's own words.
       project.text = undefined;
       project.last = null;
       for (const screen of project.screens) if (screen.full) screen.analysis = offered(screen.full, screen.checks, screen.choices);
