@@ -102,6 +102,11 @@ test('a screen written from source is marked and its parts are found as an appli
   assert.deepEqual(list[2].fits, ['grid', 'rows']);
   assert.equal(outline(list).split('\n')[2], '[3] 3 items, each with text, a field: "Name" / "Owner" / "Notes". Can be: grid, rows');
   assert.equal(marked.slice(list[1].from, list[1].to).startsWith('<div class="grid grid-cols-3 gap-4" data-pe-group="3">'), true);
+  // An item written as one line, a name and its value, is a row and not a card.
+  const rows = candidates(markPage(`<main><h1 class="text-xl">Job</h1><div class="divide-y">${['Queue', 'Created', 'Started'].map((name) => `<div class="flex items-center justify-between p-4"><span class="font-medium">${name} of it</span><span>two hours ago</span></div>`).join('')}</div></main>`), { app: true });
+  assert.deepEqual(rows.map((c) => [c.kind, c.fits]), [['group', ['grid', 'rows']]]);
+  // A panel of fields under its title is no block to align.
+  assert.deepEqual(candidates(markPage('<main><div class="mx-auto w-80"><h1 class="text-2xl">Sign in</h1><p>Use your work email address.</p><input><button>Continue</button></div></main>'), { app: true }), []);
   const plan = planOf(list, [], 'ko', 'screen');
   assert.deepEqual(plan.map((area) => area.label), ['화면 위쪽 배치', '항목 배치 방식', '항목 배치 방식']);
   assert.deepEqual(planEvents([], { file: 'a.tsx' }), [{ t: 'plan', arranged: true, areas: [], file: 'a.tsx' }]);

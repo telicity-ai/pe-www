@@ -346,8 +346,11 @@ export function candidates(page, { groups = 10, blocks = 6, app = false } = {}) 
     const share = (name) => facts.filter((f) => f[name]).length >= items.length * 0.6;
     const pictures = share('pictures');
     const fields = share('controls');
-    // In an application a row of fields or of settings is not a card: nothing of it is put first or scrolled sideways.
-    const cards = !app || ((share('headings') || pictures) && !fields);
+    // In an application a row of fields or of settings is not a card: nothing of it is put first
+    // or scrolled sideways. Nor is an item written as one line, a name at one end and its value
+    // at the other.
+    const lines = items.filter((item) => /(^|\s)justify-between(\s|$)/.test(attr(item, 'class') ?? '') || (/(^|\s)flex(\s|$)/.test(attr(item, 'class') ?? '') && /(^|\s)items-center(\s|$)/.test(attr(item, 'class') ?? '') && !/(^|\s)flex-col(\s|$)/.test(attr(item, 'class') ?? ''))).length >= items.length * 0.6;
+    const cards = !app || ((share('headings') || pictures) && !fields && !lines);
     found.push({
       kind: 'group', node: top, from: top.sourceCodeLocation.startOffset, to: top.sourceCodeLocation.endOffset,
       items: items.length,
