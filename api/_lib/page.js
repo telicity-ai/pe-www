@@ -279,7 +279,8 @@ export function candidates(page, { groups = 10, blocks = 6 } = {}) {
       items: items.length,
       each: [share('headings') && 'a heading', 'text', pictures && 'a picture', share('actions') && 'a link'].filter(Boolean),
       title: top === group ? '' : headingIn(top, group),
-      names: items.slice(0, 4).map((item) => (headingIn({ childNodes: [item] }) || textOf(item, 60)).slice(0, 48)),
+      // Every item is named, so that the model counts them right; of a long list, the first few.
+      names: items.slice(0, 6).map((item) => (headingIn({ childNodes: [item] }) || textOf(item, 60)).slice(0, items.length > 4 ? 32 : 48)),
       fits: ['grid', pictures ? 'zigzag' : 'rows', ...(items.length >= 3 ? ['scroller', 'featured'] : [])],
     });
   }
@@ -320,7 +321,7 @@ export function outline(list) {
   const quote = (text) => `"${text.replace(/"/g, "'")}"`;
   return list.map((c) => {
     const what = c.kind === 'group'
-      ? `${c.items} items${c.title ? ` under the heading ${quote(c.title)}` : ''}, each with ${c.each.join(', ')}: ${c.names.map(quote).join(' / ')}`
+      ? `${c.items} items${c.title ? ` under the heading ${quote(c.title)}` : ''}, each with ${c.each.join(', ')}: ${c.names.map(quote).join(' / ')}${c.items > c.names.length ? ` and ${c.items - c.names.length} more` : ''}`
       : `a block${c.opens ? ' that opens the page' : ''}: the heading ${quote(c.heading)}${c.has.length ? `, ${c.has.join(', ')}` : ''}`;
     return `[${c.n}] ${what}. Can be: ${c.fits.join(', ')}`;
   }).join('\n');
