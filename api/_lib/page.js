@@ -1,6 +1,8 @@
 // A live web page, made ready to be shown and to be asked about: what is taken out of it (its
-// scripts and what only they need), which stylesheets it wants, which of its elements could be
-// an area, and such an element in a short form for the model.
+// scripts and what only they need), which stylesheets it wants, and which of its parts could be
+// an area: a group of like items (cards, plans, quotes) or a block around a heading (a hero).
+// Such a part is never written anew: its own elements are arranged another way by the page that
+// shows it, so the parts are marked here for that page to find.
 import { parse, parseFragment, serialize } from 'parse5';
 
 const DROP = new Set(['script', 'style', 'link', 'meta', 'base', 'title', 'noscript', 'template', 'iframe', 'frame', 'object', 'embed', 'audio', 'video', 'canvas', 'dialog']);
@@ -59,9 +61,17 @@ function rootAttributes(node) {
 
 /** Takes out of a tree what is not shown or would run, and makes the addresses of its pictures whole. */
 function tidy(node, base) {
+  for (const child of elements(node)) {
+    // A film is not played here; the picture that stands for it until it plays is shown in its place.
+    if (child.tagName !== 'video' || !attr(child, 'poster')) continue;
+    child.tagName = 'img';
+    child.nodeName = 'img';
+    child.attrs = [{ name: 'src', value: attr(child, 'poster') }, ...child.attrs.filter((a) => a.name === 'class' || a.name === 'style' || a.name === 'width' || a.name === 'height'), { name: 'alt', value: '' }];
+    child.childNodes = [];
+  }
   node.childNodes = (node.childNodes ?? []).filter((child) => child.nodeName !== '#comment' && !DROP.has(child.tagName));
   for (const child of elements(node)) {
-    child.attrs = child.attrs.filter((a) => !a.name.startsWith('on') && a.name !== 'srcset' && a.name !== 'sizes' && a.name !== 'integrity' && a.name !== 'nonce');
+    child.attrs = child.attrs.filter((a) => !a.name.startsWith('on') && !a.name.startsWith('data-pe') && a.name !== 'srcset' && a.name !== 'sizes' && a.name !== 'integrity' && a.name !== 'nonce');
     if (child.tagName === 'img') {
       const lazy = LAZY.map((name) => attr(child, name)).find(Boolean);
       const source = attr(child, 'src');
@@ -108,6 +118,7 @@ export function readPage(source, address) {
   };
   collect(root);
   tidy(body, base);
+  markGroups(body);
   return {
     title: head ? textOf(find(head, 'title') ?? {}, 200) : '',
     html: rootAttributes(root),
@@ -118,116 +129,199 @@ export function readPage(source, address) {
   };
 }
 
-// ---------- the elements that could be an area ----------
+// ---------- what a page is made of ----------
 
 const HIDDEN = (node) => node.attrs.some((a) => a.name === 'hidden' || (a.name === 'aria-hidden' && a.value === 'true') || (a.name === 'style' && /display\s*:\s*none|visibility\s*:\s*hidden/i.test(a.value)));
-const NOT_AN_AREA = new Set(['svg', 'option', 'optgroup', 'tr', 'td', 'th', 'thead', 'tbody', 'li', 'p', 'span', 'a', 'button', 'label', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'picture', 'figure', 'img', 'br', 'hr', 'input', 'select', 'textarea', 'body', 'html']);
-const count = (node, tags) => {
-  let n = 0;
-  const walk = (el) => { for (const child of elements(el)) { if (tags.has(child.tagName)) n += 1; if (child.tagName !== 'svg') walk(child); } };
-  walk(node);
-  return n;
-};
-const LINKS = new Set(['a']);
-const BUTTONS = new Set(['button']);
-const FIELDS = new Set(['input', 'select', 'textarea']);
-const PICTURES = new Set(['img', 'svg']);
-
-const SECTIONS = new Set(['section', 'nav', 'header', 'footer', 'form', 'ul', 'ol', 'table', 'article', 'aside', 'main', 'dl']);
 const HEADINGS = new Set(['h1', 'h2', 'h3', 'h4']);
+const ITEM_TAGS = new Set(['div', 'li', 'a', 'article', 'section', 'figure', 'blockquote', 'details']);
+const NOT_A_BLOCK = new Set(['a', 'button', 'label', 'span', 'p', 'li', 'hgroup', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'body', 'html']);
+
+/** How many words a text has; writing without spaces between words is counted by its characters. */
+const wordCount = (text) => text.split(/\s+/).filter(Boolean).length + Math.floor((text.match(/[぀-ヿ一-鿿]/g) ?? []).length / 2);
+
+const known = new WeakMap();
+/** What an element holds, hidden parts left out: `{ words, pictures, headings, actions, light }`. `light` is its size without its pictures. */
+function factsOf(node) {
+  if (known.has(node)) return known.get(node);
+  const facts = { words: 0, pictures: 0, headings: 0, actions: 0, light: 12 + Math.min((attr(node, 'class') ?? '').length, 60) };
+  for (const child of node.childNodes ?? []) {
+    if (child.nodeName === '#text') {
+      const text = child.value.trim();
+      facts.words += wordCount(text);
+      facts.light += text.length;
+    } else if (child.tagName === 'svg' || child.tagName === 'img' || child.tagName === 'picture') {
+      // A drawing as small as a letter is an icon, not a picture; of a drawing only its attributes say which.
+      const small = child.tagName === 'svg' && (Number(attr(child, 'width')) || 100) <= 48;
+      facts.pictures += small ? 0 : 1;
+      facts.light += 30;
+    } else if (child.tagName && !HIDDEN(child)) {
+      const inner = factsOf(child);
+      for (const name of Object.keys(facts)) facts[name] += inner[name];
+      if (HEADINGS.has(child.tagName)) facts.headings += 1;
+      if (child.tagName === 'a' || child.tagName === 'button') facts.actions += 1;
+    }
+  }
+  known.set(node, facts);
+  return facts;
+}
+
+const classesOf = (node) => (attr(node, 'class') ?? '').trim().split(/\s+/).filter(Boolean);
+/** Two elements that look like two of a kind: the same tag, and classes that are mostly the same. */
+function alike(a, b) {
+  if (a.tagName !== b.tagName) return false;
+  const x = classesOf(a);
+  const y = classesOf(b);
+  if (!x.length || !y.length) return x.length === y.length;
+  const shared = x.filter((name) => y.includes(name)).length;
+  return x[0] === y[0] || shared >= Math.max(x.length, y.length) * 0.5;
+}
 
 /**
- * The elements of a page that could be an area, in the order of the page:
- * `[{ n, node, from, to, depth, tag, classes, text, parts }]`. `from` and `to` are offsets in
- * the page's text; `depth` says how many other candidates lie around it. An area has to be
- * small enough to be written anew and large enough to be worth it; of a page with more such
- * elements than can be listed, the ones that look most like a part of their own are kept.
+ * The like items that an element is a group of, or null: cards, plans, quotes, steps. They are
+ * most of what the element holds, each has words and something more (a heading, a picture, a
+ * link), and none is as large as a section of the page.
  */
-export function candidates(page, { min = 500, max = 7000, limit = 60 } = {}) {
+function groupAt(node) {
+  const kids = elements(node).filter((kid) => !HIDDEN(kid));
+  const kinds = [];
+  for (const kid of kids) {
+    if (!ITEM_TAGS.has(kid.tagName)) continue;
+    const kind = kinds.find((list) => alike(list[0], kid));
+    if (kind) kind.push(kid);
+    else kinds.push([kid]);
+  }
+  const items = kinds.sort((a, b) => b.length - a.length)[0];
+  if (!items || items.length < 2 || items.length > 24) return null;
+  const facts = items.map(factsOf);
+  const mean = (name) => facts.reduce((sum, f) => sum + f[name], 0) / facts.length;
+  if (facts.filter((f) => f.words >= 3 && (f.headings || f.pictures || f.actions)).length < items.length * 0.8) return null;
+  // Two of a kind are a pair of cards only when each says something: a heading and its text are two of a kind too.
+  if (items.length === 2 && facts.some((f) => f.words < 8 || !(f.headings || f.pictures))) return null;
+  if (mean('light') > 2500 || mean('words') > 160) return null;
+  // Items of one kind are about as large as each other: a heading beside the list it heads is not one of the list.
+  const sizes = facts.map((f) => f.light);
+  if (Math.max(...sizes) > Math.min(...sizes) * (items.length === 2 ? 2.5 : 6)) return null;
+  if (facts.reduce((sum, f) => sum + f.light, 0) < factsOf(node).light * 0.6) return null;
+  return items;
+}
+
+/** Marks the groups of a page for the page that shows it: data-pe-group on the element, data-pe-item on each item. */
+function markGroups(node) {
+  for (const child of elements(node)) {
+    // Menus and the links at the foot of a page are groups too, but not ones to arrange anew.
+    if (HIDDEN(child) || child.tagName === 'svg' || child.tagName === 'nav' || child.tagName === 'footer') continue;
+    const items = groupAt(child);
+    if (!items) {
+      markGroups(child);
+      continue;
+    }
+    child.attrs.push({ name: 'data-pe-group', value: String(items.length) });
+    for (const item of items) item.attrs.push({ name: 'data-pe-item', value: '' });
+    // What an item holds is the item's own; what stands beside the items is looked at.
+    for (const other of elements(child)) if (!items.includes(other)) markGroups({ childNodes: [other] });
+  }
+}
+
+// ---------- the parts that could be an area ----------
+
+const within = (node, test) => {
+  for (let up = node.parentNode; up?.tagName; up = up.parentNode) if (test(up)) return true;
+  return false;
+};
+const all = (node, test, out = []) => {
+  for (const child of elements(node)) {
+    if (HIDDEN(child) || child.tagName === 'svg') continue;
+    if (test(child)) out.push(child);
+    all(child, test, out);
+  }
+  return out;
+};
+const headingIn = (node, skip = null) => {
+  for (const child of elements(node)) {
+    if (HIDDEN(child) || child === skip || child.tagName === 'svg') continue;
+    if (HEADINGS.has(child.tagName)) return textOf(child, 120);
+    const inside = headingIn(child, skip);
+    if (inside) return inside;
+  }
+  return '';
+};
+const isGroup = (node) => node.attrs?.some((a) => a.name === 'data-pe-group');
+
+/**
+ * The parts of a page that could be an area, in the order of the page:
+ * `[{ n, kind, from, to, fits, … }]`. `page` is the text that `readPage` gave; `from` and `to`
+ * are offsets in it. A part is a "group" (`items`, how many; `each`, what an item holds;
+ * `title`, the heading above them; `names`, how the items begin) or a "block" around a heading
+ * (`opens`, when it is the page's first; `heading`; `has`, what else it holds). `fits` are the
+ * arrangements that can be made of it.
+ */
+export function candidates(page, { groups = 10, blocks = 6 } = {}) {
   const fragment = parseFragment(page, { sourceCodeLocationInfo: true });
-  const all = [];
-  const walk = (node) => {
-    for (const child of elements(node)) {
-      if (child.tagName === 'svg' || child.tagName === 'pre' || child.tagName === 'code' || !child.sourceCodeLocation || HIDDEN(child)) continue;
-      const { startOffset: from, endOffset: to } = child.sourceCodeLocation;
-      const size = to - from;
-      if (size >= min && size <= max && !NOT_AN_AREA.has(child.tagName)) {
-        const only = elements(child);
-        // A wrapper around one element is that element with another name: the inner one is taken.
-        const wrapper = only.length === 1 && only[0].sourceCodeLocation && (only[0].sourceCodeLocation.endOffset - only[0].sourceCodeLocation.startOffset) > size * 0.85 && !NOT_AN_AREA.has(only[0].tagName);
-        const text = textOf(child, 600);
-        const words = text.split(' ').filter(Boolean).length;
-        const parts = { links: count(child, LINKS), buttons: count(child, BUTTONS), fields: count(child, FIELDS), pictures: count(child, PICTURES) };
-        if (!wrapper && (words >= 4 || parts.links + parts.buttons + parts.fields >= 2)) {
-          const score = Math.min(size, 3000) / 1000 + (SECTIONS.has(child.tagName) ? 2 : 0) + (count(child, HEADINGS) ? 2 : 0) + (words >= 12 ? 1 : 0) + (parts.links + parts.buttons + parts.fields >= 2 ? 1 : 0);
-          all.push({ node: child, from, to, tag: child.tagName, classes: (attr(child, 'class') ?? '').trim().split(/\s+/).filter(Boolean).slice(0, 6).join('.'), id: attr(child, 'id') ?? '', text, parts, score });
-        }
-      }
-      if (size >= min) walk(child);
+  const found = [];
+
+  for (const group of all(fragment, isGroup)) {
+    if (!group.sourceCodeLocation) continue;
+    const items = elements(group).filter((el) => el.attrs.some((a) => a.name === 'data-pe-item'));
+    // The area is the group with what belongs to it (its heading, a line of text above it): as
+    // far up as the group stays most of the element.
+    let top = group;
+    for (let up = group.parentNode; up?.tagName && up.sourceCodeLocation; up = up.parentNode) {
+      if (up.tagName === 'main' || factsOf(group).light < factsOf(up).light * 0.55 || all(up, isGroup).length > 1) break;
+      top = up;
+      // A section of the page is as far as a part reaches.
+      if (up.tagName === 'section' || up.tagName === 'article' || up.tagName === 'aside') break;
     }
-  };
-  walk(fragment);
-  const chosen = all.length <= limit ? all : [...all].sort((a, b) => b.score - a.score).slice(0, limit).sort((a, b) => a.from - b.from);
-  return chosen.map((c, index) => ({ ...c, n: index + 1, depth: chosen.filter((o) => o !== c && o.from <= c.from && o.to >= c.to).length }));
+    const facts = items.map(factsOf);
+    const share = (name) => facts.filter((f) => f[name]).length >= items.length * 0.6;
+    const pictures = share('pictures');
+    found.push({
+      kind: 'group', node: top, from: top.sourceCodeLocation.startOffset, to: top.sourceCodeLocation.endOffset,
+      items: items.length,
+      each: [share('headings') && 'a heading', 'text', pictures && 'a picture', share('actions') && 'a link'].filter(Boolean),
+      title: top === group ? '' : headingIn(top, group),
+      names: items.slice(0, 4).map((item) => (headingIn({ childNodes: [item] }) || textOf(item, 60)).slice(0, 48)),
+      fits: ['grid', pictures ? 'zigzag' : 'rows', ...(items.length >= 3 ? ['scroller', 'featured'] : [])],
+    });
+  }
+
+  let first = true;
+  for (const heading of all(fragment, (el) => el.tagName === 'h1' || el.tagName === 'h2')) {
+    if (within(heading, (up) => isGroup(up) || up.tagName === 'nav' || up.tagName === 'footer')) continue;
+    // The block is the heading with what belongs to it (a line of text, buttons, a picture):
+    // as far up as there is one heading and no group.
+    let top = null;
+    for (let up = heading.parentNode; up?.tagName && up.sourceCodeLocation; up = up.parentNode) {
+      const facts = factsOf(up);
+      if (up.tagName === 'main' || facts.light > 3500 || facts.words > 160 || isGroup(up) || all(up, isGroup).length || all(up, (el) => el.tagName === 'h1' || el.tagName === 'h2').length > 1) break;
+      if (!NOT_A_BLOCK.has(up.tagName)) top = up;
+      if (up.tagName === 'section' || up.tagName === 'article' || up.tagName === 'aside' || up.tagName === 'header') break;
+    }
+    if (!top) continue;
+    const facts = factsOf(top);
+    const own = factsOf(heading).words;
+    if (facts.words < own + 3 && !facts.actions && !facts.pictures) continue;
+    if (found.some((c) => c.from < top.sourceCodeLocation.endOffset && top.sourceCodeLocation.startOffset < c.to)) continue;
+    found.push({
+      kind: 'block', node: top, from: top.sourceCodeLocation.startOffset, to: top.sourceCodeLocation.endOffset,
+      opens: first && heading.tagName === 'h1',
+      heading: textOf(heading, 120),
+      has: [facts.words > own + 2 && 'text', facts.actions && `${facts.actions} ${facts.actions === 1 ? 'link' : 'links'}`, facts.pictures && 'a picture'].filter(Boolean),
+      fits: ['centered', 'left', ...(facts.pictures ? ['split'] : [])],
+    });
+    first = false;
+  }
+
+  const keep = (kind, limit) => found.filter((c) => c.kind === kind).sort((a, b) => a.from - b.from).slice(0, limit);
+  return [...keep('group', groups), ...keep('block', blocks)].sort((a, b) => a.from - b.from).map((c, index) => ({ ...c, n: index + 1 }));
 }
 
-/** The candidates as the model reads them: one line each, indented by what lies inside what. */
+/** The candidates as the model reads them: one line each. */
 export function outline(list) {
+  const quote = (text) => `"${text.replace(/"/g, "'")}"`;
   return list.map((c) => {
-    const parts = Object.entries(c.parts).filter(([, n]) => n).map(([name, n]) => `${n} ${name}`).join(', ');
-    const name = `<${c.tag}${c.id ? `#${c.id.slice(0, 30)}` : ''}${c.classes ? `.${c.classes.slice(0, 70)}` : ''}>`;
-    return `${'  '.repeat(Math.min(c.depth, 6))}[${c.n}] ${name} ${c.to - c.from} chars${parts ? `, ${parts}` : ''}: "${c.text.slice(0, 110)}"`;
+    const what = c.kind === 'group'
+      ? `${c.items} items${c.title ? ` under the heading ${quote(c.title)}` : ''}, each with ${c.each.join(', ')}: ${c.names.map(quote).join(' / ')}`
+      : `a block${c.opens ? ' that opens the page' : ''}: the heading ${quote(c.heading)}${c.has.length ? `, ${c.has.join(', ')}` : ''}`;
+    return `[${c.n}] ${what}. Can be: ${c.fits.join(', ')}`;
   }).join('\n');
-}
-
-// ---------- an element in short, for the model ----------
-
-const KEEP_ATTRIBUTES = new Set(['class', 'role', 'type', 'placeholder', 'value', 'checked', 'disabled', 'selected', 'colspan', 'rowspan', 'alt', 'href', 'open']);
-const VOID = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'param', 'source', 'track', 'wbr']);
-const EMPTY_SHELLS = new Set(['span', 'div', 'i', 'b', 'em', 'strong', 'p', 'li', 'a']);
-const escapeText = (text) => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-const escapeAttribute = (text) => text.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
-
-/**
- * An element as the model is given it: `{ html, kept }`. Its pictures and drawings are not
- * written out (they are long, and the model cannot make new ones): each stands as an empty
- * element with data-keep="N", and `kept[N]` is what it was. `restore` puts them back.
- */
-export function compact(node) {
-  const kept = [];
-  const write = (el) => {
-    if (el.nodeName === '#text') return escapeText(el.value.replace(/\s+/g, ' '));
-    if (!el.tagName) return '';
-    if (el.tagName === 'svg' || el.tagName === 'img' || el.tagName === 'picture') {
-      kept.push(serializeOuter(el));
-      const label = el.tagName === 'img' ? attr(el, 'alt') : attr(el, 'aria-label');
-      const classes = attr(el, 'class');
-      const tag = el.tagName === 'svg' ? 'svg' : 'img';
-      const open = `<${tag} data-keep="${kept.length - 1}"${classes ? ` class="${escapeAttribute(classes)}"` : ''}${label ? ` alt="${escapeAttribute(label.slice(0, 60))}"` : ''}>`;
-      return tag === 'svg' ? `${open}</svg>` : open;
-    }
-    const attributes = el.attrs
-      .filter((a) => a.value.trim() !== '' || a.name === 'checked' || a.name === 'disabled' || a.name === 'selected' || a.name === 'open')
-      .filter((a) => KEEP_ATTRIBUTES.has(a.name) || a.name.startsWith('aria-') || (a.name.startsWith('data-') && a.value.length <= 40) || (a.name === 'style' && a.value.length <= 240))
-      .map((a) => ` ${a.name}="${escapeAttribute(a.value)}"`).join('');
-    const open = `<${el.tagName}${attributes}>`;
-    if (VOID.has(el.tagName)) return open;
-    const inside = (el.childNodes ?? []).map(write).join('');
-    // Empty shells (the cells of a counter that a script fills, spacers without a class) say
-    // nothing, and a row of them makes the model lose its thread.
-    if (!inside.trim() && !attributes && EMPTY_SHELLS.has(el.tagName)) return '';
-    return `${open}${inside}</${el.tagName}>`;
-  };
-  return { html: write(node).replace(/>\s+</g, '><').trim(), kept };
-}
-
-function serializeOuter(node) {
-  return serialize({ nodeName: '#document-fragment', childNodes: [node] });
-}
-
-/** Puts the pictures and drawings back that an answer names by data-keep; one it does not know is left out. */
-export function restore(html, kept) {
-  return html
-    .replace(/<svg\b[^>]*\bdata-keep\s*=\s*["']?(\d+)["']?[^>]*>(?:\s*<\/svg\s*>)?/gi, (whole, n) => kept[Number(n)] ?? '')
-    .replace(/<img\b[^>]*\bdata-keep\s*=\s*["']?(\d+)["']?[^>]*>/gi, (whole, n) => kept[Number(n)] ?? '');
 }

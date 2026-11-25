@@ -61,10 +61,23 @@ browser ── GitHub API ──▶ file tree, package.json            (the visi
 Typed a web address (`example.com/pricing`), the page asks `api/site.js` instead:
 
 - **The page is the site's own.** The function fetches the page and its stylesheets and takes
-  out what would run (`api/_lib/page.js`); nothing is written anew by the model, so it is
-  there after a second or two. One call names three areas from an outline of the page's
-  elements; then each option of each area is drawn by a call of its own, from that element
-  with its pictures and drawings set aside and put back afterwards.
+  out what would run (`api/_lib/page.js`); nothing is written by the model, so it is there
+  after a second or two.
+- **An option is the page's own elements, arranged another way.** The parts that can be
+  arranged are found in the page's structure: a group of like items (features, plans, quotes)
+  or a block around a heading (a hero). Of a group the items can stand in columns, in rows,
+  in rows with the picture beside the text, in one row that is scrolled, or with the first one
+  large; of a block the text can be centered, aligned left, or put beside its picture. No
+  word and no picture is written anew, so none is lost or invented.
+- **The preview carries an arrangement out and checks it** (`site/assets/preview.js`), where
+  the page's styles and sizes are known: an arrangement that comes to what the page does
+  today, that squeezes an item, cuts something off or makes items overlap is not offered, and
+  an area with no arrangement left is no area. So a page may show fewer than three areas, or
+  an area one option.
+- **The model is asked once**, for what needs a reader: which parts matter to a visitor, what
+  each choice is called, and which arrangement it would suggest and why. The first suggested
+  arrangement that held on the page is the one marked. Without an answer the first parts of
+  the page are offered with nothing marked.
 - **Only public pages, as they are served.** No address inside a private network is fetched,
   and every redirect is looked at again (`api/_lib/web.js`). A page that is drawn by its
   scripts, or that asks to sign in, arrives all but empty and is refused with a word on why.

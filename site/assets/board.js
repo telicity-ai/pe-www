@@ -59,7 +59,7 @@ export function take(board, event) {
     case 'option': {
       const area = areaOf(board, event.area);
       if (!area.options.some((o) => o.id === event.id)) {
-        area.options.push({ id: event.id, label: event.label, pattern: event.pattern, html: event.html, ...(event.suggested ? { suggested: true } : {}), ...(event.because ? { because: event.because } : {}) });
+        area.options.push({ id: event.id, label: event.label, pattern: event.pattern, html: event.html, ...(event.recipe ? { recipe: event.recipe } : {}), ...(event.suggested ? { suggested: true } : {}), ...(event.because ? { because: event.because } : {}) });
       }
       return true;
     }
@@ -89,7 +89,7 @@ function ready(board) {
 
 /**
  * What can be drawn now, in the form the preview and the prompt work with:
- * { screen, css, page, areas: [{ id, label, decision, options: [{ id, label, keep|pattern|suggested|because, html }] }] }.
+ * { screen, css, page, areas: [{ id, label, decision, options: [{ id, label, keep|pattern|recipe|suggested|because, html }] }] }.
  * In `page` a choice is a <pe-area id> in the place of its element; that element is the first
  * option, the area as it is today. An area that is not a choice (yet) is simply part of the page.
  */
@@ -140,15 +140,20 @@ export function assemble(board, fallbackTitle = '') {
     slot.setAttribute('id', area.id);
     from.replaceWith(slot);
     to.remove();
-    const pick = area.options.find((o) => o.suggested) ?? area.options[0];
+    // Of a live page's options none is suggested here: which one is, is known once they have
+    // been tried on the page (see `offered` in app.js).
+    const pick = board.site ? null : area.options.find((o) => o.suggested) ?? area.options[0];
+    const today = holder.innerHTML;
     areas.set(area.id, {
       id: area.id,
       label: area.label || area.id,
       ...(area.decision ? { decision: area.decision } : {}),
       options: [
-        { id: 'keep', label: '', keep: true, html: holder.innerHTML },
+        { id: 'keep', label: '', keep: true, html: today },
         ...area.options.map((option) => {
           const { suggested, because, ...plain } = option;
+          // An arrangement is the area's own elements put another way: it starts as the area of today.
+          if (option.recipe) return { ...plain, html: today, ...(because ? { because } : {}) };
           return option === pick ? { ...plain, suggested: true, ...(because ? { because } : {}) } : plain;
         }),
       ],
@@ -160,7 +165,7 @@ export function assemble(board, fallbackTitle = '') {
     screen: { title: board.title || fallbackTitle, summary: board.summary, file: board.file },
     css: board.css,
     page: doc.body.innerHTML,
-    // In the order of the plan.
+    // In the order of the plan: for a live page, the part that matters most first.
     areas: board.plan.map((planned) => areas.get(planned.id)).filter(Boolean),
     waiting: !board.done,
   };

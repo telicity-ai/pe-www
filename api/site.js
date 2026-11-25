@@ -1,7 +1,7 @@
 // GET /api/site?url=https://example.com/pricing&lang=en&try=1
 //
-// Reads one public web page and asks Solar for a storyboard of it: the page as it is, and a
-// few areas of it with options from picky-eater's catalog. The request names an address; this
+// Reads one public web page and prepares a storyboard of it: the page as it is, and a few
+// areas of it with other arrangements to choose from. The request names an address; this
 // function fetches the page itself, so that it cannot be used to send arbitrary text to the
 // model, and it fetches nothing but public web pages (api/_lib/web.js).
 //
@@ -11,13 +11,17 @@
 //   {"t":"sheet","text":…}                                  one of the page's stylesheets, in their order
 //   {"t":"page","text":…} … {"t":"page-end"}                 the HTML inside <body>, without scripts
 //   {"t":"plan","areas":[…]}  {"t":"place","area":…,"from":…,"to":…}  {"t":"screen","title":…,"summary":…}
-//   {"t":"option",…}  {"t":"miss",…}
+//   {"t":"option","area":…,"id":…,"recipe":…,"pattern":…,"because":…}
 //   {"t":"done","ms":…,…}   or   {"t":"error","code":…,"message":…}
-// The page is not written by the model: it is the site's own. One call names the areas from
-// an outline of the page; then each option of each area is drawn by a call of its own.
-import { LIMITS, Reader, Variant, clean, planChoice } from './_lib/answer.js';
-import { siteAreasTask, siteSystem, siteVariantTask } from './_lib/brief.js';
-import { absoluteCss, candidates, compact, outline, readPage, restore } from './_lib/page.js';
+//
+// Nothing of the page is written by the model. The page is the site's own, and an option is
+// the area's own elements arranged another way (a recipe that the page showing it carries out
+// and then checks, see site/assets/preview.js). The model is asked once, for what needs a
+// reader: which parts matter, what each choice is called, and which arrangement it would
+// suggest and why. Without its answer the first parts of the page are offered without a suggestion.
+import { Reader, clean } from './_lib/answer.js';
+import { ARRANGEMENTS, siteAreasTask, siteSystem } from './_lib/brief.js';
+import { absoluteCss, candidates, outline, readPage } from './_lib/page.js';
 import { MODEL, SolarError, ask } from './_lib/solar.js';
 import { WebError, fetchPublic, publicUrl } from './_lib/web.js';
 
@@ -31,8 +35,8 @@ const PAGE_CHARS = 1_000_000; // what is left of it without scripts
 const SHEETS = 80;
 const SHEET_BYTES = 2_000_000;
 const SHEETS_CHARS = 4_000_000;
-const OPTION_TOKENS = 2_600;
-const DEADLINE_MS = 120_000;
+const AREAS = 5; // more than are shown: an area whose arrangements do not hold on the page is left out there
+const DEADLINE_MS = 60_000;
 
 const PER_MINUTE = 6;
 const hits = new Map();
@@ -66,31 +70,77 @@ function limited(ip) {
 
 const one = (value) => (Array.isArray(value) ? value[0] : value);
 
-const squeezed = (html) => html.replace(/\s+/g, '');
-const wordsOf = (html) => new Set(html.replace(/<[^>]*>/g, ' ').toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((word) => word.length > 2));
+/** What an area is called when the model does not say. */
+const LABELS = {
+  en: { opens: 'How the page opens', block: 'How this part is laid out', group: 'How these items are laid out' },
+  ko: { opens: '첫 화면 구성', block: '이 부분의 배치', group: '항목 배치 방식' },
+};
 
 /**
- * What is wrong with an option, or null: "same" when it is the element of today again, "short"
- * when it has lost most of the element's words (an answer that broke off, or a part taken for
- * the whole).
+ * Reads the model's answer into areas: `[{ candidate, label, picks: [{ id, because }] }]`, in
+ * the order of the answer. A part named twice, a part inside another, and an arrangement that
+ * the part cannot take are left out.
  */
-export function flawed(html, today) {
-  const a = squeezed(html);
-  const b = squeezed(today);
-  let head = 0;
-  while (head < a.length && head < b.length && a[head] === b[head]) head += 1;
-  let tail = 0;
-  while (tail < a.length - head && tail < b.length - head && a[a.length - 1 - tail] === b[b.length - 1 - tail]) tail += 1;
-  if (head + tail >= Math.max(a.length, b.length) * 0.97) return 'same';
-  const wanted = wordsOf(today);
-  const have = wordsOf(html);
-  const kept = [...wanted].filter((word) => have.has(word)).length;
-  if (html.length < today.length * 0.3 || (wanted.size >= 4 && kept < wanted.size * 0.6)) return 'short';
-  return null;
+export function readAreas(text, list) {
+  const areas = [];
+  let summary = null;
+  let area = null;
+  const reader = new Reader((name, rest) => {
+    if (name === 'SUMMARY') summary = rest;
+    if (name === 'AREA') {
+      area = null;
+      const [number, ...label] = rest.split('|');
+      const candidate = list[Number(number.replace(/[^0-9]/g, '')) - 1];
+      if (!candidate || areas.length >= AREAS || areas.some((a) => a.candidate.from < candidate.to && candidate.from < a.candidate.to)) return;
+      area = { candidate, label: clean(label.join('|'), 70), picks: [] };
+      areas.push(area);
+    }
+    if (name === 'PICK' && area) {
+      const [id, ...reason] = rest.split('|');
+      const recipe = id.trim().toLowerCase();
+      if (area.candidate.fits.includes(recipe) && !area.picks.some((pick) => pick.id === recipe)) area.picks.push({ id: recipe, because: clean(reason.join('|'), 200) });
+    }
+  }, () => {});
+  reader.push(text);
+  reader.end();
+  return { areas: areas.filter((a) => a.picks.length), summary };
 }
 
-/** An option stands in the element's place: what would pin it to the screen is taken off. */
-const unpinned = (html) => html.replace(/position\s*:\s*(fixed|sticky)/gi, 'position:relative');
+/**
+ * The areas as they are sent: `[{ id, label, place, options: [{ id, because? }] }]`. `picked`
+ * is what the model named (see `readAreas`); without it, the part the page opens with and the
+ * groups that follow it are offered, nothing suggested. Each area brings every arrangement its
+ * part can take: those that were given a reason first, in their order.
+ */
+export function planOf(list, picked, lang) {
+  let areas = picked;
+  if (!areas.length) {
+    const opening = list.find((c) => c.kind === 'block' && c.opens);
+    areas = [opening, ...list.filter((c) => c.kind === 'group')].filter(Boolean).slice(0, AREAS).map((candidate) => ({ candidate, label: null, picks: [] }));
+  }
+  const names = LABELS[lang] ?? LABELS.en;
+  return areas.map(({ candidate, label, picks }) => ({
+    id: `area-${candidate.n}`,
+    label: label ?? (candidate.kind === 'group' ? names.group : candidate.opens ? names.opens : names.block),
+    place: { from: candidate.from, to: candidate.to },
+    options: [...picks, ...candidate.fits.filter((id) => !picks.some((pick) => pick.id === id)).map((id) => ({ id }))],
+  }));
+}
+
+/** The lines of the answer that say what the areas are. */
+export function planEvents(plan, { file, title, summary }) {
+  const events = [{ t: 'plan', areas: plan.map(({ id, label, options }) => ({ id, label, options: options.map((o) => o.id) })), file }];
+  for (const area of plan) events.push({ t: 'place', area: area.id, ...area.place });
+  events.push({ t: 'screen', title, summary: clean(summary, 220) ?? '' });
+  for (const area of plan) {
+    for (const option of area.options) {
+      const pattern = ARRANGEMENTS[option.id].pattern;
+      events.push({ t: 'option', area: area.id, id: option.id, recipe: option.id, ...(pattern ? { pattern } : {}), ...(option.because ? { because: option.because } : {}) });
+    }
+  }
+  return events;
+}
+
 const tokens = (usage) => (usage ? { prompt: usage.prompt_tokens, cached: usage.prompt_tokens_details?.cached_tokens, completion: usage.completion_tokens } : undefined);
 
 /** A page's name as a person would say it: the part of its title that is not the site's slogan. */
@@ -140,78 +190,33 @@ async function draw({ address, lang, send, signal }) {
   if (page.words < 40 || !list.length) throw new Failure(422, 'empty_page', 'There is too little on the page as it is served');
   marks.fetched = at();
 
+  // The model is asked while the stylesheets are fetched: it needs the outline alone.
+  let text = '';
+  const asking = ask({ messages: [{ role: 'system', content: siteSystem(lang) }, { role: 'user', content: siteAreasTask({ url: got.url.href, title: page.title, outline: outline(list) }) }], maxTokens: 700, signal, onText: (piece) => { text += piece; } })
+    .then((answer) => ({ answer }), (error) => ({ error }));
+
   const sheets = await readSheets(page.sheets);
   marks.sheets = at();
   send({ t: 'site', url: got.url.href, title: shortTitle(page.title, got.url), html: page.html, body: page.body });
-  for (const text of sheets) send({ t: 'sheet', text });
+  for (const sheet of sheets) send({ t: 'sheet', text: sheet });
   for (let i = 0; i < page.page.length; i += 60_000) send({ t: 'page', text: page.page.slice(i, i + 60_000) });
   send({ t: 'page-end' });
 
-  const system = siteSystem(lang);
-  const messages = (task) => [{ role: 'system', content: system }, { role: 'user', content: task }];
-
-  // Which elements are the areas.
-  const areas = [];
-  const ids = new Set();
+  // Which parts are the areas, and what would be suggested for each.
+  let areas = [];
   let summary = null;
-  const reader = new Reader((name, rest) => {
-    if (name === 'SUMMARY') summary = rest;
-    if (name !== 'AREA' || areas.length >= 3) return;
-    const [number, ...others] = rest.split('|');
-    const candidate = list[Number(number.replace(/[^0-9]/g, '')) - 1];
-    // An area inside another, or around it, would be the same choice twice.
-    if (!candidate || areas.some((a) => a.candidate.from < candidate.to && candidate.from < a.candidate.to)) return;
-    const area = planChoice(`area-${candidate.n} |${others.join('|')}`, ids);
-    if (area) areas.push({ ...area, candidate });
-  }, () => {});
-  const chosen = await ask({ messages: messages(siteAreasTask({ url: got.url.href, title: page.title, outline: outline(list) })), maxTokens: 500, signal, onText: (piece) => reader.push(piece) });
-  reader.end();
-  calls.push({ kind: 'areas', ms: chosen.ms, first: chosen.firstMs, finish: chosen.finish, ...tokens(chosen.usage) });
-  if (!areas.length) throw new Failure(502, 'model_error', 'The answer names no area');
+  const { answer, error } = await asking;
+  if (answer) {
+    calls.push({ kind: 'areas', ms: answer.ms, first: answer.firstMs, finish: answer.finish, ...tokens(answer.usage) });
+    ({ areas, summary } = readAreas(text, list));
+  } else {
+    calls.push({ kind: 'areas', failed: error.code ?? 'failed' });
+    if (signal.aborted) throw error;
+  }
+  const plan = planOf(list, areas, lang);
+  if (!plan.length) throw new Failure(422, 'empty_page', 'The page has no part to arrange another way');
   marks.plan = at();
-  send({ t: 'plan', areas: areas.map(({ id, label, decision, options }) => ({ id, label, ...(decision ? { decision } : {}), options: options.map((o) => o.id) })), file: got.url.href });
-  for (const area of areas) send({ t: 'place', area: area.id, from: area.candidate.from, to: area.candidate.to });
-  send({ t: 'screen', title: shortTitle(page.title, got.url), summary: clean(summary, 220) ?? '' });
-
-  // Each option of each area, in a call of its own.
-  let drawn = 0;
-  await Promise.all(areas.flatMap((area) => {
-    const today = compact(area.candidate.node);
-    return area.options.map(async (option) => {
-      const kind = `${area.id}:${option.id}`;
-      let event = null;
-      let again = null;
-      // Asked a second time when the answer is the element of today again, or has lost its words.
-      for (let attempt = 0; attempt < 2 && !signal.aborted; attempt += 1) {
-        const variant = new Variant(area, option);
-        const answer = new Reader((name, rest) => variant.marker(name, rest), (text) => variant.text(text));
-        try {
-          const result = await ask({ messages: messages(siteVariantTask(area, option, today.html, again)), maxTokens: OPTION_TOKENS, signal, onText: (piece) => answer.push(piece) });
-          answer.end();
-          calls.push({ kind, ms: result.ms, first: result.firstMs, finish: result.finish, ...tokens(result.usage), ...(again ? { again } : {}) });
-        } catch (error) {
-          calls.push({ kind, failed: error.code ?? 'failed' });
-          if (error.code !== 'busy') break;
-          await new Promise((resolve) => setTimeout(resolve, 1500));
-          continue;
-        }
-        const drawnNow = variant.result();
-        again = drawnNow ? flawed(drawnNow.html, today.html) : 'short';
-        if (!again) {
-          event = drawnNow;
-          break;
-        }
-      }
-      if (!event) {
-        send({ t: 'miss', area: area.id, id: option.id });
-        return;
-      }
-      event.html = unpinned(restore(event.html, today.kept)).slice(0, LIMITS.option);
-      send(event);
-      drawn += 1;
-    });
-  }));
-  if (!drawn) throw new Failure(502, 'model_error', 'The answer has no option');
+  for (const event of planEvents(plan, { file: got.url.href, title: shortTitle(page.title, got.url), summary })) send(event);
   return { ms: at(), marks, calls };
 }
 

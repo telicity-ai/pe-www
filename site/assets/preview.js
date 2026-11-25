@@ -38,7 +38,8 @@ function cleanElement(el) {
     if (child.hasAttribute('classname') && !child.hasAttribute('class')) child.setAttribute('class', child.getAttribute('classname'));
     for (const attribute of [...child.attributes]) {
       const name = attribute.name.toLowerCase();
-      const known = ATTRIBUTES.has(name) || name.startsWith('aria-') || (name.startsWith('data-') && !name.startsWith('data-pe'));
+      // Of the marks this page uses itself, only those that the server puts on a live page's groups come from outside.
+      const known = ATTRIBUTES.has(name) || name.startsWith('aria-') || (name.startsWith('data-') && !name.startsWith('data-pe')) || (pictures && (name === 'data-pe-group' || name === 'data-pe-item'));
       if (!known || name.startsWith('on')) {
         child.removeAttribute(attribute.name);
         continue;
@@ -327,7 +328,354 @@ function bridge(placeDot, resolveOptions) {
       placed.set(id, { option, nodes });
     }
     if (config.site) reveal();
+    for (const [id, was] of placed) {
+      const recipe = recipeOf(id, was.option);
+      if (recipe && arrangedAt.get(key(id, was.option)) !== sizeNow()) attempt(id, was.option, recipe);
+    }
   }
+
+  // ----- a live page's own elements, arranged another way -----
+  //
+  // An option of a live page is not other markup: it is a copy of the area as it is today, whose
+  // elements are laid out anew here, where their styles and their sizes are known. Whether that
+  // gave what was meant (something else than today, nothing cut off, nothing squeezed) is measured
+  // right after; an arrangement that did not hold is not offered.
+  const recipeOf = (id, option) => layout.areas.find((area) => area.id === id)?.options.find((entry) => entry.id === option)?.recipe ?? null;
+  const sizeNow = () => `${document.documentElement.clientWidth}`;
+  const arrangedAt = new Map(); // "area option" → the width of the page it was arranged at
+  const touched = new Map(); // "area option" → Map(element → the style attribute it had)
+  const box = (el) => el.getBoundingClientRect();
+  const seen = (el) => {
+    const r = box(el);
+    return r.width > 1 && r.height > 1 && getComputedStyle(el).visibility !== 'hidden';
+  };
+  const wordsIn = (el) => (el.textContent ?? '').trim().split(/\s+/).filter(Boolean).length;
+  const pixels = (value) => parseFloat(value) || 0;
+
+  function style(k, el, styles) {
+    let was = touched.get(k);
+    if (!was) touched.set(k, (was = new Map()));
+    if (!was.has(el)) was.set(el, el.getAttribute('style'));
+    for (const name of Object.keys(styles)) el.style.setProperty(name, styles[name], 'important');
+  }
+  function undo(k) {
+    for (const [el, was] of touched.get(k) ?? []) {
+      if (was === null) el.removeAttribute('style');
+      else el.setAttribute('style', was);
+    }
+    touched.delete(k);
+  }
+
+  /** The children of an element that take part in its layout: shown, and not laid over it. */
+  const flow = (el) => [...el.children].filter((kid) => seen(kid) && !/^(absolute|fixed)$/.test(getComputedStyle(kid).position));
+  /** A picture, or a box that holds pictures and next to no words, large enough to be one. */
+  const isMedia = (el) => {
+    const r = box(el);
+    if (r.width < 120 || r.height < 80 || wordsIn(el) > 8) return false;
+    const pictures = el.matches('img, picture, svg') ? [el] : [...el.querySelectorAll('img, picture, svg')];
+    return pictures.some((picture) => {
+      const p = box(picture.localName === 'picture' ? picture.querySelector('img') ?? picture : picture);
+      return p.width >= 100 && p.height >= 60;
+    });
+  };
+  /** Where an element divides into its text and its one picture: `{ at, media, text, others }`, or null. */
+  function splitOf(el, depth = 0) {
+    const kids = flow(el);
+    if (kids.length === 1 && depth < 5) return splitOf(kids[0], depth + 1);
+    const media = kids.filter(isMedia);
+    const text = kids.filter((kid) => !media.includes(kid) && wordsIn(kid) > 0);
+    if (media.length === 1 && text.length) return { at: el, media: media[0], text, others: kids.filter((kid) => kid !== media[0] && !text.includes(kid)) };
+    // Text and picture may lie one level further in, beside something that says nothing.
+    const full = kids.filter((kid) => wordsIn(kid) > 0 || kid.querySelector('img, picture, svg'));
+    if (!media.length && full.length === 1 && depth < 5) return splitOf(full[0], depth + 1);
+    return null;
+  }
+  /** Text in one column and the picture beside it, the picture as high as the text is tall. */
+  function sideBySide(k, split, pictureFirst, columns) {
+    const rows = split.text.length;
+    const m = box(split.media);
+    // The rows above and below the text take up what the picture is taller than the text.
+    style(k, split.at, { display: 'grid', 'grid-template-columns': columns, 'grid-template-rows': `1fr repeat(${rows}, auto) 1fr`, 'grid-template-areas': 'none', 'grid-auto-flow': 'row', 'column-gap': 'clamp(24px, 5%, 64px)', 'align-items': 'start', 'justify-items': 'stretch' });
+    split.text.forEach((el, index) => style(k, el, { 'grid-column': pictureFirst ? '2' : '1', 'grid-row': String(index + 2), width: 'auto', 'max-width': '100%', 'min-width': '0', 'margin-left': '0', 'margin-right': '0', 'justify-self': 'stretch', 'align-self': 'start' }));
+    style(k, split.media, { 'grid-column': pictureFirst ? '1' : '2', 'grid-row': `1 / span ${rows + 2}`, width: 'auto', 'max-width': '100%', 'min-width': '0', height: 'auto', 'min-height': '0', 'aspect-ratio': `${Math.round(m.width)} / ${Math.round(m.height)}`, margin: '0', flex: 'none', 'justify-self': 'stretch', 'align-self': 'center', ...(/^(absolute|fixed)$/.test(getComputedStyle(split.media).position) ? { position: 'relative', inset: 'auto' } : {}) });
+    for (const el of split.others) style(k, el, { 'grid-column': '1 / -1', 'grid-row': 'auto' });
+  }
+  const beside = (split) => {
+    const m = box(split.media);
+    const texts = split.text.map(box);
+    const left = Math.min(...texts.map((r) => r.left));
+    const right = Math.max(...texts.map((r) => r.right));
+    return { yes: m.left >= right - 8 || m.right <= left + 8, text: right - left, media: m };
+  };
+
+  function groupOf(id) {
+    const root = placed.get(id)?.nodes.find((node) => node.nodeType === 1);
+    const container = root && (root.matches('[data-pe-group]') ? root : root.querySelector('[data-pe-group]'));
+    if (!container) return null;
+    const items = [...container.children].filter((el) => el.hasAttribute('data-pe-item') && seen(el));
+    return items.length >= 2 ? { root, container, items } : null;
+  }
+  /** How items lie today: `{ rects, columns, gap, wide }`; `wide` when they reach past the area (a row that is scrolled). */
+  function laid(root, items) {
+    const rects = items.map(box);
+    const top = Math.min(...rects.map((r) => r.top));
+    const low = Math.min(...rects.map((r) => r.height));
+    const first = rects.filter((r) => r.top < top + Math.max(8, low * 0.5)).sort((a, b) => a.left - b.left);
+    const columns = new Set(first.map((r) => Math.round(r.left / 8))).size;
+    const below = rects.filter((r) => !first.includes(r)).sort((a, b) => a.top - b.top)[0];
+    const between = columns > 1 ? first[1].left - first[0].right : below ? below.top - Math.max(...first.map((r) => r.bottom)) : 24;
+    const r = box(root);
+    return { rects, columns, gap: Math.max(12, Math.min(48, Number.isFinite(between) && between > 0 ? Math.round(between) : 24)), wide: Math.max(...rects.map((x) => x.right)) - Math.min(...rects.map((x) => x.left)) > r.width + 16 };
+  }
+
+  /** Lays a group out anew. Returns why it cannot be done, or null; `notes` takes what is to be measured afterwards. */
+  function arrangeGroup(k, id, recipe, notes) {
+    const group = groupOf(id);
+    if (!group) return 'unfit';
+    const { root, container, items } = group;
+    const today = laid(root, items);
+    const width = box(root).width;
+    const others = flow(container).filter((el) => !items.includes(el));
+    const room = (columns) => (width - today.gap * (columns - 1)) / columns;
+    const splits = recipe === 'zigzag' ? items.map((item) => splitOf(item)) : recipe === 'featured' ? [splitOf(items[0])] : [];
+    let columns = 1;
+    if (recipe === 'grid') {
+      const n = items.length;
+      columns = [3, 2, 4].find((c) => c <= n && (c !== today.columns || today.wide) && (n % c === 0 || (c === 3 && n >= 5)) && room(c) >= 200) ?? 0;
+      if (!columns) return 'same';
+    } else if (recipe === 'featured') {
+      const rest = items.length - 1;
+      columns = rest % 3 === 0 || rest >= 5 ? 3 : 2;
+      if (items.length < 3 || room(columns) < 200) return 'cramped';
+    } else if (recipe === 'rows') {
+      if (today.columns === 1 && !today.wide) return 'same';
+    } else if (recipe === 'zigzag') {
+      if (splits.filter(Boolean).length < items.length * 0.6 || width < 560) return 'unfit';
+    } else if (recipe === 'scroller') {
+      if (items.length < 3 || today.wide || others.length) return today.wide ? 'same' : 'unfit';
+    }
+    const basis = Math.round(Math.max(240, Math.min(440, width * 0.4)));
+    const row = recipe === 'scroller';
+    style(k, container, {
+      display: columns > 1 ? 'grid' : 'flex', 'grid-template-columns': `repeat(${columns}, minmax(0, 1fr))`, 'grid-template-rows': 'none', 'grid-template-areas': 'none', 'grid-auto-flow': 'row', 'grid-auto-rows': 'auto',
+      'flex-direction': row ? 'row' : 'column', 'flex-wrap': 'nowrap', 'justify-content': 'flex-start', 'align-items': 'stretch', 'align-content': 'start', gap: `${today.gap}px`,
+      width: 'auto', 'max-width': '100%', 'min-width': '0', height: 'auto', 'max-height': 'none', 'box-sizing': 'border-box', transform: 'none', columns: 'auto',
+      // What the group cuts off today stays cut off: a picture that reaches past its card is meant to.
+      ...(row ? { 'overflow-x': 'auto', 'overflow-y': 'hidden', 'scroll-snap-type': 'x proximity', 'padding-bottom': '12px' } : {}),
+    });
+    items.forEach((item, index) => {
+      const cs = getComputedStyle(item);
+      style(k, item, {
+        'grid-column': recipe === 'featured' && index === 0 ? '1 / -1' : 'auto', 'grid-row': 'auto',
+        width: row ? `${basis}px` : 'auto', 'max-width': 'none', 'min-width': '0', margin: '0', transform: 'none', float: 'none', flex: row ? `0 0 ${basis}px` : '0 0 auto', 'align-self': 'stretch', 'justify-self': 'stretch',
+        ...(row ? { 'scroll-snap-align': 'start' } : {}),
+        ...(/^inline/.test(cs.display) ? { display: 'block' } : {}),
+        ...(/^(absolute|fixed)$/.test(cs.position) ? { position: 'relative', inset: 'auto' } : {}),
+      });
+    });
+    for (const el of others) style(k, el, { 'grid-column': '1 / -1', 'grid-row': 'auto' });
+    splits.forEach((split, index) => {
+      if (split) sideBySide(k, split, recipe === 'zigzag' && index % 2 === 1, 'minmax(0, 1fr) minmax(0, 1fr)');
+    });
+    notes.splits = splits.filter(Boolean);
+    notes.wanted = recipe === 'zigzag' ? Math.ceil(items.length * 0.6) : 0;
+    return null;
+  }
+
+  /** Aligns what a block says to the left or to the middle, and puts its picture beside or below it. */
+  function arrangeBlock(k, id, recipe, notes) {
+    const root = placed.get(id)?.nodes.find((node) => node.nodeType === 1);
+    if (!root) return 'unfit';
+    const split = splitOf(root);
+    const side = split && beside(split).yes;
+    if (recipe === 'split' && (!split || side || box(root).width < 640)) return split && side ? 'same' : 'unfit';
+    const to = recipe === 'centered' ? 'center' : 'left';
+    const ops = [];
+    const all = [root, ...root.querySelectorAll('*')].slice(0, 800);
+    for (const el of all) {
+      if ((split && (el === split.media || split.media.contains(el))) || el.closest('svg, pre, code, table, input, textarea, select') || !seen(el)) continue;
+      const cs = getComputedStyle(el);
+      const add = {};
+      if (to === 'left' ? /center/.test(cs.textAlign) : /^(start|left|-webkit-left|-webkit-auto)$/.test(cs.textAlign)) add['text-align'] = to;
+      if (/flex/.test(cs.display)) {
+        if (cs.flexDirection.startsWith('column')) {
+          if (to === 'left' ? cs.alignItems === 'center' : /^(flex-start|start)$/.test(cs.alignItems)) add['align-items'] = to === 'left' ? 'flex-start' : 'center';
+        } else {
+          // A row is moved as a whole when it does not fill its line.
+          const used = flow(el).reduce((sum, kid) => sum + box(kid).width, 0);
+          const loose = used < box(el).width - 16;
+          if (to === 'left' ? cs.justifyContent === 'center' : loose && /^(flex-start|start|normal|left)$/.test(cs.justifyContent)) add['justify-content'] = to === 'left' ? 'flex-start' : 'center';
+        }
+      } else if (/grid/.test(cs.display) && cs.gridTemplateColumns.split(' ').length === 1) {
+        if (to === 'left' ? cs.justifyItems === 'center' : /^(start|left)$/.test(cs.justifyItems)) add['justify-items'] = to === 'left' ? 'start' : 'center';
+      }
+      // An element narrower than what it stands in, that stands in its middle (or at its left).
+      const parent = el.parentElement;
+      if (el !== root && parent && !/^inline/.test(cs.display) && !/^(absolute|fixed)$/.test(cs.position)) {
+        const ps = getComputedStyle(parent);
+        const inRow = /flex/.test(ps.display) && !ps.flexDirection.startsWith('column');
+        const inColumns = /grid/.test(ps.display) && ps.gridTemplateColumns.split(' ').length > 1;
+        if (!inRow && !inColumns) {
+          const p = box(parent);
+          const r = box(el);
+          const left = r.left - (p.left + pixels(ps.paddingLeft) + pixels(ps.borderLeftWidth));
+          const right = p.right - pixels(ps.paddingRight) - pixels(ps.borderRightWidth) - r.right;
+          if (to === 'left' && left > 8 && Math.abs(left - right) <= 2) Object.assign(add, { 'margin-left': '0', 'margin-right': 'auto', 'align-self': 'flex-start', 'justify-self': 'start' });
+          if (to === 'center' && left <= 2 && right > 16) Object.assign(add, { 'margin-left': 'auto', 'margin-right': 'auto', 'align-self': 'center', 'justify-self': 'center' });
+        }
+      }
+      if (Object.keys(add).length) ops.push([el, add]);
+    }
+    const stack = recipe === 'centered' && split && side;
+    if (!ops.length && recipe !== 'split' && !stack) return 'same';
+    for (const [el, add] of ops) style(k, el, add);
+    if (recipe === 'split') sideBySide(k, split, false, 'minmax(0, 1fr) minmax(0, 1.1fr)');
+    if (stack) {
+      const m = box(split.media);
+      style(k, split.at, { display: 'flex', 'flex-direction': 'column', 'flex-wrap': 'nowrap', 'align-items': 'center' });
+      for (const el of split.text) style(k, el, { order: '0', flex: '0 0 auto', width: 'auto', 'max-width': '100%' });
+      style(k, split.media, { order: '1', flex: '0 0 auto', width: 'min(100%, 960px)', 'max-width': '100%', height: 'auto', 'aspect-ratio': `${Math.round(m.width)} / ${Math.round(m.height)}`, margin: '32px auto 0' });
+    }
+    notes.split = recipe === 'split' ? split : null;
+    notes.stacked = Boolean(stack);
+    return null;
+  }
+
+  /** Where the words of an element are, whatever box they stand in. */
+  function wordsBox(el) {
+    // The lines of the text itself: an element's own box is as wide as what it stands in.
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    const range = document.createRange();
+    let out = null;
+    for (let node = walker.nextNode(), n = 0; node && n < 60; node = walker.nextNode()) {
+      if (!node.data.trim()) continue;
+      n += 1;
+      range.selectNodeContents(node);
+      for (const r of range.getClientRects()) {
+        if (r.width < 1 || r.height < 1) continue;
+        out = out
+          ? { left: Math.min(out.left, r.left), top: Math.min(out.top, r.top), right: Math.max(out.right, r.right), bottom: Math.max(out.bottom, r.bottom) }
+          : { left: r.left, top: r.top, right: r.right, bottom: r.bottom };
+      }
+    }
+    out ??= el.getBoundingClientRect();
+    return { left: out.left, top: out.top, right: out.right, bottom: out.bottom, width: out.right - out.left, height: out.bottom - out.top };
+  }
+
+  /**
+   * Puts one option in its area's place, arranges it and measures what came of it. Returns null
+   * when it holds, or why it does not: "same" (it is what the page does today), "unfit" (the
+   * area is not made for it), "cramped", "overflow", "overlap", "tall".
+   */
+  function attempt(id, option, recipe) {
+    const k = key(id, option);
+    put(id, option);
+    undo(k);
+    arrangedAt.set(k, sizeNow());
+    const root = placed.get(id)?.nodes.find((node) => node.nodeType === 1);
+    if (!root) return 'unfit';
+    const group = /^(grid|rows|zigzag|scroller|featured)$/.test(recipe);
+    const was = box(root);
+    const pageWas = document.documentElement.scrollWidth;
+    const items = group ? groupOf(id)?.items ?? [] : [];
+    const heading = group ? null : root.querySelector('h1, h2, h3') ?? root;
+    const before = group ? items.map(box) : wordsBox(heading);
+    // What each item is headed by: a heading broken into a narrow column says the item was squeezed.
+    const heads = items.map((item) => item.querySelector('h1, h2, h3, h4, h5, strong, b') ?? item);
+    const headsWere = heads.map(wordsBox);
+    const notes = {};
+    const failed = group ? arrangeGroup(k, id, recipe, notes) : arrangeBlock(k, id, recipe, notes);
+    if (failed) return failed;
+    const now = box(root);
+    if (document.documentElement.scrollWidth > Math.max(pageWas, document.documentElement.clientWidth) + 4) return 'overflow';
+    if (now.height > Math.max(6000, was.height * 6)) return 'tall';
+    if (group) {
+      const after = items.map(box);
+      const moved = after.some((r, i) => Math.abs((r.left - now.left) - (before[i].left - was.left)) > 3 || Math.abs((r.top - now.top) - (before[i].top - was.top)) > 3 || Math.abs(r.width - before[i].width) > 3 || Math.abs(r.height - before[i].height) > 3);
+      if (!moved) return 'same';
+      if (after.some((r) => r.width < 150 || r.height < 20)) return 'cramped';
+      if (heads.some((el, i) => {
+        const r = wordsBox(el);
+        return r.width < 170 && r.height > headsWere[i].height * 2.4 && r.height > 60;
+      })) return 'cramped';
+      if (recipe === 'scroller') {
+        const container = groupOf(id)?.container;
+        if (!container || container.scrollWidth < container.clientWidth + 40) return 'same';
+      } else if (after.some((r) => r.right > now.right + 4 || r.left < now.left - 4)) return 'overflow';
+      const over = (rects) => rects.some((a, i) => rects.some((b, j) => {
+        if (j <= i) return false;
+        const w = Math.min(a.right, b.right) - Math.max(a.left, b.left);
+        const h = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
+        return w > 0 && h > 0 && w * h > Math.min(a.width * a.height, b.width * b.height) * 0.15;
+      }));
+      if (over(after) && !over(before)) return 'overlap';
+      const good = notes.splits.filter((split) => {
+        const at = beside(split);
+        return at.yes && at.text >= 200 && at.media.width >= 140 && at.media.height >= 80;
+      }).length;
+      if (good < notes.wanted) return 'unfit';
+      return null;
+    }
+    const after = wordsBox(heading);
+    if (after.right > now.right + 4 || after.left < now.left - 4) return 'overflow';
+    const off = (words, area) => (words.left + words.right) / 2 - (area.left + area.right) / 2;
+    if (recipe === 'left') return (before.left - was.left) - (after.left - now.left) >= 24 ? null : 'same';
+    if (recipe === 'centered') {
+      if (Math.abs(off(after, now)) > 24) return 'unfit';
+      return notes.stacked || Math.abs(off(before, was)) > 24 ? null : 'same';
+    }
+    const at = beside(notes.split);
+    return at.yes && at.text >= 260 && at.media.width >= 200 && at.media.height >= 100 ? null : 'cramped';
+  }
+
+  /** Puts one option in the place of its area, whatever stands there now. */
+  function put(id, option) {
+    const was = placed.get(id);
+    if (was?.option === option) return;
+    const at = marker(id);
+    const next = boxes.get(key(id, option));
+    if (!at || !next) return;
+    if (was) boxes.get(key(id, was.option))?.append(...was.nodes);
+    const nodes = [...next.childNodes];
+    at.after(...nodes);
+    placed.set(id, { option, nodes });
+  }
+
+  // What each arrangement came to, by area and option: null when it holds. Tried again when the
+  // page has another width, and while its pictures arrive (they give the parts their sizes).
+  let verdicts = {};
+  let told = '';
+  let offered = config.site ? [] : null; // the areas that have a dot; of a live page, those the page above says
+  function check() {
+    if (!config.site || config.focus) return;
+    const x = window.scrollX;
+    const y = window.scrollY;
+    const results = {};
+    for (const area of layout.areas) {
+      const mine = area.options.filter((option) => option.recipe);
+      if (!mine.length || !marker(area.id)) continue;
+      const standing = placed.get(area.id)?.option ?? area.options[0].id;
+      results[area.id] = {};
+      for (const option of mine) results[area.id][option.id] = attempt(area.id, option.id, option.recipe);
+      put(area.id, standing);
+    }
+    window.scrollTo(x, y);
+    verdicts = results;
+    const text = JSON.stringify(results);
+    if (text === told) return;
+    told = text;
+    say({ type: 'checked', results });
+  }
+  let checking = null;
+  let checks = 0;
+  const checkSoon = () => {
+    if (!config.site || config.focus || checks > 40) return;
+    clearTimeout(checking);
+    checking = setTimeout(() => {
+      checks += 1;
+      check();
+    }, 300);
+  };
 
   /**
    * A live page is shown without its scripts, and many pages keep parts of themselves
@@ -523,6 +871,11 @@ function bridge(placeDot, resolveOptions) {
     let last = '';
     const watch = () => {
       let r = rect(config.focus);
+      // The area stands at the top of the frame: what lies below the frame's edge is not drawn.
+      if (r && Math.abs(r.top) > 1 && (r.top < 0 || window.scrollY + innerHeight < document.documentElement.scrollHeight - 1)) {
+        window.scrollTo(window.scrollX, window.scrollY + r.top);
+        r = rect(config.focus);
+      }
       if (r && (r.top < 0 || r.top > innerHeight - 40)) {
         first()?.scrollIntoView({ block: 'start', inline: 'nearest' });
         r = rect(config.focus);
@@ -594,9 +947,12 @@ function bridge(placeDot, resolveOptions) {
     boxes.clear();
     for (const box of store.children) boxes.set(box.getAttribute('data-pe-option'), box);
     layout = message.layout;
+    touched.clear();
+    arrangedAt.clear();
     syncDots();
     apply(message.choices);
     window.scrollTo(0, y);
+    check();
   }
 
   let view = { open: null, chosen: [] };
@@ -613,6 +969,7 @@ function bridge(placeDot, resolveOptions) {
     const height = document.documentElement.clientHeight;
     if (size !== `${width} ${height}`) {
       // The page is laid out anew at another size: where things were no longer says where they are.
+      if (size.split(' ')[0] !== String(width)) checkSoon();
       size = `${width} ${height}`;
       held = null;
       previous = {};
@@ -626,7 +983,7 @@ function bridge(placeDot, resolveOptions) {
     for (const area of ordered) {
       let r = rect(area.id);
       const dot = dots.get(area.id);
-      if (!r) {
+      if (!r || (offered && !offered.includes(area.id))) {
         dot.style.display = 'none';
         continue;
       }
@@ -682,6 +1039,7 @@ function bridge(placeDot, resolveOptions) {
       if (message.open !== view.open) held = null;
       view = { open: message.open, chosen: message.chosen };
     }
+    if (message.type === 'offer') offered = message.areas;
     if (message.type === 'focus') dots.get(message.id)?.focus();
     if (message.type === 'show') {
       // The area is brought into view, a little below the top, so that its options have room above it.
@@ -705,6 +1063,11 @@ function bridge(placeDot, resolveOptions) {
   setInterval(unclip, 400);
   draw();
   say({ type: 'ready' });
+  check();
+  // A picture that arrives gives its part its size; so does a font.
+  window.addEventListener('load', checkSoon);
+  document.addEventListener('load', checkSoon, true);
+  document.fonts?.ready.then(checkSoon);
 }
 
 const BRIDGE = `(${bridge.toString()})(${placeDot.toString()},${resolveOptions.toString()});`;
@@ -720,7 +1083,7 @@ function documentParts(analysis, sectionGrids) {
       const slots = [];
       const html = sanitize(option.html, option.keep ? area.decision : null, slots, sectionGrids, analysis.site);
       store.push(`<div data-pe-option="${area.id} ${option.id}">${html}</div>`);
-      return { id: option.id, slots };
+      return { id: option.id, slots, ...(option.recipe ? { recipe: option.recipe } : {}) };
     });
     return { id: area.id, label: area.label, options };
   });
@@ -730,7 +1093,8 @@ function documentParts(analysis, sectionGrids) {
 }
 
 export function activeAreas(analysis, choices) {
-  if (!analysis.areas.length) return [];
+  // The areas of a live page do not lie inside one another.
+  if (!analysis.areas.length || analysis.site) return analysis.areas;
   const layout = layouts.get(analysis) ?? documentParts(analysis).layout;
   const active = resolveOptions(layout, choices);
   return analysis.areas.filter((area) => active.has(area.id));
@@ -841,6 +1205,7 @@ export class Preview {
         else this.post({ type: 'apply', choices: this.loaded.choices });
         this.changed = null;
         this.post(this.pending ?? { type: 'view', open: null, chosen: [] });
+        if (this.offered) this.post({ type: 'offer', areas: this.offered });
         this.handlers.ready?.();
       } else this.handlers[message.type]?.(message);
     });
@@ -853,6 +1218,7 @@ export class Preview {
     this.pending = null;
     this.ready = false;
     this.changed = null;
+    this.offered = null;
     const parts = documentParts(analysis, assets.sectionGrids);
     this.drawn = JSON.stringify(parts);
     const frame = makeFrame(title);
@@ -914,6 +1280,12 @@ export class Preview {
     this.post(this.pending);
   }
 
+  /** Of a live page: the areas that have a dot, those whose options held when they were tried. */
+  offer(areas) {
+    this.offered = areas;
+    this.post({ type: 'offer', areas });
+  }
+
   focusDot(id) {
     this.frame?.focus();
     this.post({ type: 'focus', id });
@@ -949,7 +1321,9 @@ export class Preview {
  * changed its width.
  */
 export function mountThumb(box, analysis, assets, areaId, choices, { width, height }, onFit) {
-  const emptyState = analysis.areas.find((area) => area.id === areaId)?.decision === 'nothing-to-show';
+  // An arrangement is told from another by its whole shape: of a live page the whole area is
+  // shown, however small; so is an empty state, which is placed by the space around it.
+  const whole = analysis.site === true || analysis.areas.find((area) => area.id === areaId)?.decision === 'nothing-to-show';
   const token = newToken();
   const frame = makeFrame('');
   frame.setAttribute('tabindex', '-1');
@@ -957,6 +1331,7 @@ export function mountThumb(box, analysis, assets, areaId, choices, { width, heig
   frame.style.cssText = `position:absolute;left:0;top:50%;border:0;width:${width}px;height:${height}px;transform-origin:0 0;pointer-events:none;visibility:hidden`;
   frame.srcdoc = buildDocument(analysis, assets, { token, choices, focus: areaId });
   let lastRect = null;
+  let grown = false;
   const listen = (event) => {
     const message = event.data;
     if (event.source !== frame.contentWindow || !message || message.pe !== token || message.type !== 'thumb') return;
@@ -971,7 +1346,12 @@ export function mountThumb(box, analysis, assets, areaId, choices, { width, heig
     // Empty states use the surrounding space to place their content. Fit that space
     // inside the thumbnail so its center stays visible even in portrait previews.
     const maxHeight = Math.min(150, box.clientWidth * 0.7);
-    const scale = Math.min(box.clientWidth / w, emptyState ? maxHeight / h : 1, 1);
+    // A tall area is laid out in a frame as tall as it is, once: what lies below a frame's edge is not drawn.
+    if (analysis.site && !grown && h > height) {
+      grown = true;
+      frame.style.height = `${Math.min(Math.ceil(h) + 40, height * 6)}px`;
+    }
+    const scale = Math.min(box.clientWidth / w, whole ? maxHeight / h : 1, 1);
     const tall = Math.max(44, Math.min(h * scale, maxHeight));
     box.style.height = `${Math.round(tall)}px`;
     const x = (box.clientWidth - w * scale) / 2 - r.left * scale;

@@ -126,6 +126,58 @@ function rewrite(project = state.project) {
   return diffPrompt(before, after);
 }
 
+/**
+ * Of a live page: what is offered of its analysis. An option of a live page is an arrangement
+ * that the preview tries on the page itself; `checks` says for each whether it held (null) or
+ * why not. Only those that held are offered, at most three per area, and an area with none is
+ * no choice. The first one the model gave a reason for is the suggestion. Three areas at most,
+ * those that matter most, in the order of the page. Until the page has been tried, nothing is.
+ */
+function offered(full, checks, choices = {}) {
+  const areas = [];
+  for (const area of full.areas) {
+    const held = checks?.[area.id] ?? {};
+    const options = area.options.filter((option) => !option.keep && (!option.recipe || held[option.id] === null || choices[area.id] === option.id)).slice(0, 3);
+    if (!options.length) continue;
+    const suggested = options.find((option) => option.because);
+    areas.push({
+      ...area,
+      options: [area.options[0], ...options.map((option) => {
+        const { suggested: was, ...plain } = option;
+        return { ...plain, label: option.recipe ? t(`arr.${option.recipe}`) : option.label, ...(option === suggested ? { suggested: true } : {}) };
+      })],
+    });
+  }
+  const at = (area) => full.page.indexOf(`<pe-area id="${area.id}"`);
+  return { ...full, areas: areas.slice(0, 3).sort((a, b) => at(a) - at(b)) };
+}
+
+/** Takes in what was put together of a screen, and returns what is shown of it. */
+function settle(screen, full) {
+  if (!full.site) return full;
+  screen.full = full;
+  return offered(full, screen.checks, screen.choices);
+}
+
+/** The preview has tried a live page's arrangements (again): what is offered follows. */
+function tried({ results }) {
+  const screen = state.screen;
+  if (!screen?.full?.site) return;
+  screen.checks = results;
+  const before = JSON.stringify(screen.analysis?.areas.map((area) => [area.id, area.options.map((option) => option.id)]));
+  const analysis = offered(screen.full, results, screen.choices);
+  preview.offer(analysis.areas.map((area) => area.id));
+  if (before === JSON.stringify(analysis.areas.map((area) => [area.id, area.options.map((option) => option.id)]))) return;
+  grow(screen, analysis);
+  if (state.open && !analysis.areas.some((area) => area.id === state.open)) closePop();
+  else if (state.open && !state.preview) {
+    renderPop();
+    placePop();
+  }
+  syncStage();
+  renderAround();
+}
+
 /** The analysis of a screen has grown while it is shown: its picks follow, and the prompt. */
 function grow(screen, analysis) {
   screen.analysis = analysis;
@@ -154,6 +206,7 @@ function shown() {
 
 const preview = new Preview(frame, {
   layout: placePop,
+  checked: tried,
   dot: ({ id, keyboard }) => openArea(state.open === id ? null : id, keyboard),
   away: closePop,
   escape: dismissPop,
@@ -202,7 +255,7 @@ function renderPop() {
   const size = { width: preview.width || 1024, height: preview.height };
   for (const option of area.options) {
     const box = pop.querySelector(`[data-option="${CSS.escape(option.id)}"] .th`);
-    thumbs.push(mountThumb(box, screen.analysis, screen.assets, area.id, { ...screen.choices, [area.id]: option.id }, size, (height) => {
+    thumbs.push(mountThumb(box, screen.full ?? screen.analysis, screen.assets, area.id, { ...screen.choices, [area.id]: option.id }, size, (height) => {
       tallest = Math.max(tallest, height);
       placePop();
     }));
@@ -416,7 +469,8 @@ function renderToolbar() {
   const writing = state.screen?.status === 'loading';
   $('pcount').classList.toggle('busy', writing);
   const count = areas.length ? t(previewing ? 'pg.previewChosen' : 'pg.chosen', { n: chosen, m: areas.length })
-    : writing ? t(state.screen.analysis?.pageDone ? 'pg.options' : 'pg.drawing') : '';
+    : writing ? t(state.screen.analysis?.pageDone ? 'pg.options' : 'pg.drawing')
+      : state.screen?.full && state.screen.checks ? t('pg.noAreas') : '';
   if ($('pcount').textContent !== count) $('pcount').textContent = count;
 }
 
@@ -488,7 +542,9 @@ function select(screen, { open = null } = {}) {
   screen.assets.scheme = state.scheme;
   // With no pick anywhere the prompt speaks of the screen that is shown.
   rewrite();
-  preview.load(screen.analysis, screen.assets, screen.choices, screen.title);
+  // Of a live page the frame holds every arrangement, to try them; which are offered is said after.
+  preview.load(screen.full ?? screen.analysis, screen.assets, screen.choices, screen.title);
+  if (screen.full) preview.offer(screen.analysis.areas.map((area) => area.id));
   preview.view(open, Object.keys(screen.choices));
   renderAround();
   renderPop();
@@ -681,7 +737,7 @@ async function analyzeScreen(screen, run = ++state.run) {
     clearTimeout(timer);
     timer = null;
     if (!watched() || !board || (screen.assets.conversation && !board.conversation) || previousChoices) return;
-    const analysis = current();
+    const analysis = settle(screen, current());
     if (!/<[a-z]/i.test(analysis.page)) return;
     const asked = iconsIn(markupOf(board));
     if (asked.length) loadIcons(asked).then((found) => found && draw());
@@ -697,7 +753,7 @@ async function analyzeScreen(screen, run = ++state.run) {
     grow(screen, analysis);
     if (state.screen !== screen) return;
     if (state.open && !analysis.areas.some((a) => a.id === state.open)) closePop();
-    preview.update(analysis, shown());
+    preview.update(screen.full ?? analysis, shown());
     renderAround();
   };
   const soon = () => { timer ??= setTimeout(draw, DRAW_EVERY_MS); };
@@ -734,8 +790,9 @@ async function analyzeScreen(screen, run = ++state.run) {
     }
     clearTimeout(timer);
     timer = null;
-    const analysis = current();
-    if (!analysis.areas.length || (files.assets.conversation && !analysis.conversation)) throw new RepoError('failed');
+    const whole = current();
+    if (!whole.areas.length || (files.assets.conversation && !whole.conversation)) throw new RepoError('failed');
+    const analysis = settle(screen, whole);
     await loadIcons(iconsIn(markupOf(board)));
     screen.status = 'ready';
     screen.saved = null;
@@ -758,7 +815,7 @@ async function analyzeScreen(screen, run = ++state.run) {
       return;
     }
     if (state.open && !analysis.areas.some((a) => a.id === state.open)) closePop();
-    preview.update(analysis, shown());
+    preview.update(screen.full ?? analysis, shown());
     renderAround();
   } catch (error) {
     clearTimeout(timer);
@@ -1074,9 +1131,11 @@ for (const button of document.querySelectorAll('[data-lang]')) {
       state.project = fresh;
       state.screen = fresh.screens.find((s) => s.id === current) ?? fresh.screens[0];
     } else {
-      // An analysis keeps the language it was made in; the prompt around it follows the page.
+      // An analysis keeps the language it was made in; the prompt around it follows the page,
+      // and so do the names of a live page's arrangements, which are this page's own words.
       project.text = undefined;
       project.last = null;
+      for (const screen of project.screens) if (screen.full) screen.analysis = offered(screen.full, screen.checks, screen.choices);
     }
     rewrite();
     if (state.screen) {
